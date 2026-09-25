@@ -22,6 +22,7 @@ from app.forensic.pcap_reader import PCAPReader
 from app.forensic.session_reconstructor import SessionReconstructor
 from app.schemas.forensic import EmailSession
 from app.services.custody_service import CustodyService
+from app.forensic.incident_correlator import IncidentCorrelator
 from app.schemas.api import (
     AnalysisDetailResponse,
     AnalysisSummaryResponse,
@@ -34,10 +35,14 @@ from app.schemas.api import (
     EvidenceConfidenceDTO,
     SecurityAssessmentDTO,
     SecurityFindingDTO,
+    FindingExplanationDTO,
+    FindingEvidenceItemDTO,
     FindingsSummaryDTO,
     EvidenceFrameDTO,
     PacketEvidenceDTO,
-    MLTriageDTO
+    MLTriageDTO,
+    CorrelatedIncidentDTO,
+    MultiSessionSummaryDTO
 )
 from app.ml.risk_classifier import MLRiskClassifier
 
@@ -275,7 +280,23 @@ class AnalysisService:
                         category=f.category.value,
                         description=f.description,
                         evidence_frames=f.evidence_frames,
-                        recommendation=f.recommendation
+                        recommendation=f.recommendation,
+                        explanation=FindingExplanationDTO(
+                            finding_id=f.explanation.finding_id,
+                            rule_id=f.explanation.rule_id,
+                            why_triggered=f.explanation.why_triggered,
+                            evidence=[
+                                FindingEvidenceItemDTO(
+                                    type=ev.type,
+                                    frame=ev.frame,
+                                    field=ev.field,
+                                    observed_value=ev.observed_value
+                                )
+                                for ev in f.explanation.evidence
+                            ],
+                            confidence_boundary=f.explanation.confidence_boundary,
+                            standards_refs=f.explanation.standards_refs
+                        ) if f.explanation else None
                     )
                     for f in (s.security_assessment.findings if s.security_assessment else [])
                 ]
@@ -345,6 +366,40 @@ class AnalysisService:
         primary_conf_score = session_dtos[0].evidence_confidence.score if session_dtos else 95
         primary_conf_level = session_dtos[0].evidence_confidence.level if session_dtos else "HIGH"
 
+        # Evidence-Bounded Incident Correlation & Multi-Session Summary
+        raw_incidents = IncidentCorrelator.correlate_sessions(sessions)
+        summary_model = IncidentCorrelator.generate_summary(sessions, raw_incidents)
+
+        incident_dtos = [
+            CorrelatedIncidentDTO(
+                incident_id=inc.incident_id,
+                incident_type=inc.incident_type,
+                severity=inc.severity,
+                session_ids=inc.session_ids,
+                finding_ids=inc.finding_ids,
+                evidence_frames=inc.evidence_frames,
+                correlation_reasons=inc.correlation_reasons,
+                confidence=inc.confidence,
+                authoritative=inc.authoritative,
+                evidence_backed=inc.evidence_backed,
+                correlation_method=inc.correlation_method,
+                pattern_name=inc.pattern_name,
+                endpoint=inc.endpoint,
+                evidence_summary=inc.evidence_summary,
+                recommendation=inc.recommendation
+            )
+            for inc in raw_incidents
+        ]
+
+        multi_session_summary_dto = MultiSessionSummaryDTO(
+            total_sessions=summary_model.total_sessions,
+            sessions_with_findings=summary_model.sessions_with_findings,
+            incident_count=summary_model.incident_count,
+            critical_high_incident_count=summary_model.critical_high_incident_count,
+            repeated_pattern_count=summary_model.repeated_pattern_count,
+            uncorrelated_sessions_count=summary_model.uncorrelated_sessions_count
+        )
+
         report = AnalysisDetailResponse(
             analysis_id=analysis_id,
             file_name=filename,
@@ -356,7 +411,9 @@ class AnalysisService:
             email_sessions_found=len(sessions),
             sessions=session_dtos,
             evidence_confidence_score=primary_conf_score,
-            evidence_confidence_level=primary_conf_level
+            evidence_confidence_level=primary_conf_level,
+            multi_session_summary=multi_session_summary_dto,
+            correlated_incidents=incident_dtos
         )
 
         return report, sessions

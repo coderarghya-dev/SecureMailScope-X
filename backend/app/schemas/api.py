@@ -107,6 +107,22 @@ class EvidenceConfidenceDTO(BaseModel):
     confidence_factors: List[str] = []
 
 
+class FindingEvidenceItemDTO(BaseModel):
+    type: str
+    frame: Optional[int] = None
+    field: str
+    observed_value: str
+
+
+class FindingExplanationDTO(BaseModel):
+    finding_id: str
+    rule_id: str
+    why_triggered: str
+    evidence: List[FindingEvidenceItemDTO] = []
+    confidence_boundary: str
+    standards_refs: List[str] = []
+
+
 class SecurityFindingDTO(BaseModel):
     id: str
     title: str
@@ -115,6 +131,7 @@ class SecurityFindingDTO(BaseModel):
     description: str
     evidence_frames: List[int] = []
     recommendation: Optional[str] = None
+    explanation: Optional[FindingExplanationDTO] = None
 
 
 class FindingsSummaryDTO(BaseModel):
@@ -206,6 +223,36 @@ class SessionDetailDTO(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# 3b. Incident Correlation & Multi-Session Summary DTOs
+# ---------------------------------------------------------------------------
+class CorrelatedIncidentDTO(BaseModel):
+    incident_id: str
+    incident_type: str
+    severity: str
+    session_ids: List[str] = []
+    finding_ids: List[str] = []
+    evidence_frames: List[int] = []
+    correlation_reasons: List[str] = []
+    confidence: str = "HIGH"
+    authoritative: bool = True
+    evidence_backed: bool = True
+    correlation_method: str = "DETERMINISTIC_RULE_CORRELATION"
+    pattern_name: Optional[str] = None
+    endpoint: Optional[str] = None
+    evidence_summary: Optional[str] = None
+    recommendation: Optional[str] = None
+
+
+class MultiSessionSummaryDTO(BaseModel):
+    total_sessions: int = 0
+    sessions_with_findings: int = 0
+    incident_count: int = 0
+    critical_high_incident_count: int = 0
+    repeated_pattern_count: int = 0
+    uncorrelated_sessions_count: int = 0
+
+
+# ---------------------------------------------------------------------------
 # 4. Analysis Summary & Listing Responses
 # ---------------------------------------------------------------------------
 class AnalysisSummaryResponse(BaseModel):
@@ -218,6 +265,8 @@ class AnalysisSummaryResponse(BaseModel):
     raw_capture_packets_total: Optional[int] = None
     email_sessions_found: int
     sessions: List[SessionSummaryDTO]
+    multi_session_summary: Optional[MultiSessionSummaryDTO] = None
+    correlated_incidents: List[CorrelatedIncidentDTO] = []
 
 
 class AnalysisDetailResponse(BaseModel):
@@ -232,6 +281,8 @@ class AnalysisDetailResponse(BaseModel):
     sessions: List[SessionDetailDTO]
     evidence_confidence_score: Optional[int] = None
     evidence_confidence_level: Optional[str] = None
+    multi_session_summary: Optional[MultiSessionSummaryDTO] = None
+    correlated_incidents: List[CorrelatedIncidentDTO] = []
 
 
 # ---------------------------------------------------------------------------

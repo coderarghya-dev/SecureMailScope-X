@@ -8,6 +8,8 @@ from typing import List, Optional
 from ..schemas.forensic import (
     EmailSession,
     SecurityFinding,
+    FindingEvidenceItem,
+    FindingExplanation,
     SessionSecurityAssessment,
     FindingSeverity,
     FindingCategory,
@@ -37,6 +39,26 @@ class CryptographicRuleEngine:
         # RULE 1: PLAINTEXT COMMUNICATION (CRITICAL)
         # ----------------------------------------------------------
         if session.security_mode == SecurityMode.PLAINTEXT:
+            pt_frames = [p.frame_number for p in session.evidence_packets[:5]]
+            pt_evidence = [
+                FindingEvidenceItem(
+                    type="PROTOCOL_SECURITY",
+                    frame=p.frame_number,
+                    field="security_mode",
+                    observed_value="PLAINTEXT"
+                )
+                for p in session.evidence_packets[:5]
+            ]
+            if not pt_evidence:
+                pt_evidence = [
+                    FindingEvidenceItem(
+                        type="PROTOCOL_SECURITY",
+                        frame=None,
+                        field="security_mode",
+                        observed_value="PLAINTEXT (Unencrypted session stream)"
+                    )
+                ]
+
             findings.append(SecurityFinding(
                 id="FINDING-PLAINTEXT-COMMUNICATION",
                 title="Unencrypted Cleartext Email Session",
@@ -47,14 +69,31 @@ class CryptographicRuleEngine:
                     "was conducted entirely in plaintext without cryptographic encryption. Authentication credentials, "
                     "headers, and email payloads are exposed to passive eavesdropping and MITM tampering."
                 ),
-                evidence_frames=[p.frame_number for p in session.evidence_packets[:5]],
-                recommendation="Enforce mandatory TLS encryption via STARTTLS (SMTP 587, POP3 110, IMAP 143) or Direct TLS (SMTPS 465, IMAPS 993, POP3S 995)."
+                evidence_frames=pt_frames,
+                recommendation="Enforce mandatory TLS encryption via STARTTLS (SMTP 587, POP3 110, IMAP 143) or Direct TLS (SMTPS 465, IMAPS 993, POP3S 995).",
+                explanation=FindingExplanation(
+                    finding_id="FINDING-PLAINTEXT-COMMUNICATION",
+                    rule_id="RULE-PLAINTEXT-TRAFFIC",
+                    why_triggered="Email session conducted entirely in cleartext without TLS or STARTTLS cryptographic wrapping.",
+                    evidence=pt_evidence,
+                    confidence_boundary="Direct frame inspection of packet payload and unencrypted commands.",
+                    standards_refs=["RFC 3207", "RFC 8314"]
+                )
             ))
 
         # ----------------------------------------------------------
         # RULE 2: STARTTLS STRIPPING & TRANSITION FAILURES (HIGH)
         # ----------------------------------------------------------
         if st.advertised and not st.requested and session.security_mode != SecurityMode.DIRECT_TLS:
+            adv_frames = get_frames(st.advertised_frame)
+            adv_evidence = [
+                FindingEvidenceItem(
+                    type="PROTOCOL_COMMAND",
+                    frame=st.advertised_frame,
+                    field="starttls_advertised",
+                    observed_value=st.advertised_text or "STARTTLS capability advertised"
+                )
+            ]
             findings.append(SecurityFinding(
                 id="FINDING-STARTTLS-STRIPPING-RISK",
                 title="STARTTLS Capability Advertised but Never Requested",
@@ -64,19 +103,59 @@ class CryptographicRuleEngine:
                     f"Server advertised STARTTLS capability on frame {st.advertised_frame}, but the client never issued "
                     "a STARTTLS command. This behavior is a signature of active STARTTLS stripping attacks or client misconfiguration."
                 ),
-                evidence_frames=get_frames(st.advertised_frame),
-                recommendation="Configure client with mandatory TLS / strict transport security (MTA-STS / DANE) to prevent plaintext fallbacks."
+                evidence_frames=adv_frames,
+                recommendation="Configure client with mandatory TLS / strict transport security (MTA-STS / DANE) to prevent plaintext fallbacks.",
+                explanation=FindingExplanation(
+                    finding_id="FINDING-STARTTLS-STRIPPING-RISK",
+                    rule_id="RULE-STARTTLS-STRIPPING",
+                    why_triggered="Server advertised STARTTLS capability, but client failed to request it before issuing plaintext transaction commands.",
+                    evidence=adv_evidence,
+                    confidence_boundary="Direct protocol command stream observation.",
+                    standards_refs=["RFC 3207", "RFC 7435"]
+                )
             ))
 
         if st.failed:
+            fail_frames = get_frames(st.requested_frame, st.failure_frame)
+            fail_evidence = []
+            if st.requested_frame is not None:
+                fail_evidence.append(FindingEvidenceItem(
+                    type="PROTOCOL_COMMAND",
+                    frame=st.requested_frame,
+                    field="requested_command",
+                    observed_value=st.requested_command or "STARTTLS"
+                ))
+            if st.failure_frame is not None:
+                fail_evidence.append(FindingEvidenceItem(
+                    type="PROTOCOL_RESPONSE",
+                    frame=st.failure_frame,
+                    field="failure_reason",
+                    observed_value=st.failure_reason or "STARTTLS rejected by server"
+                ))
+            if not fail_evidence:
+                fail_evidence.append(FindingEvidenceItem(
+                    type="PROTOCOL_RESPONSE",
+                    frame=None,
+                    field="failure_reason",
+                    observed_value=st.failure_reason or "STARTTLS failed"
+                ))
+
             findings.append(SecurityFinding(
                 id="FINDING-STARTTLS-UPGRADE-FAILED",
                 title="STARTTLS Upgrade Rejected by Server",
                 severity=FindingSeverity.HIGH,
                 category=FindingCategory.PROTOCOL_SECURITY,
                 description=f"STARTTLS upgrade command was rejected by the server: {st.failure_reason or 'Unknown failure'}.",
-                evidence_frames=get_frames(st.requested_frame, st.failure_frame),
-                recommendation="Audit server configuration and certificates to resolve STARTTLS rejection cause."
+                evidence_frames=fail_frames,
+                recommendation="Audit server configuration and certificates to resolve STARTTLS rejection cause.",
+                explanation=FindingExplanation(
+                    finding_id="FINDING-STARTTLS-UPGRADE-FAILED",
+                    rule_id="RULE-STARTTLS-FAILURE",
+                    why_triggered="STARTTLS upgrade command was rejected by the server response.",
+                    evidence=fail_evidence,
+                    confidence_boundary="Direct protocol response code inspection.",
+                    standards_refs=["RFC 3207"]
+                )
             ))
 
         # ----------------------------------------------------------
@@ -84,6 +163,8 @@ class CryptographicRuleEngine:
         # ----------------------------------------------------------
         if tls:
             ver = tls.negotiated_tls_version
+            tls_frames = get_frames(tls.client_hello_frame, tls.server_hello_frame)
+            server_frame = tls.server_hello_frame or tls.client_hello_frame
 
             if ver in [TLSVersion.SSLv2, TLSVersion.SSLv3]:
                 findings.append(SecurityFinding(
@@ -92,8 +173,23 @@ class CryptographicRuleEngine:
                     severity=FindingSeverity.CRITICAL,
                     category=FindingCategory.CRYPTOGRAPHIC_STRENGTH,
                     description=f"{ver.value} is cryptographically broken and vulnerable to POODLE, DROWN, and padding oracle attacks.",
-                    evidence_frames=get_frames(tls.client_hello_frame, tls.server_hello_frame),
-                    recommendation="Immediately disable SSLv2 and SSLv3. Require TLS 1.2 or TLS 1.3 minimum."
+                    evidence_frames=tls_frames,
+                    recommendation="Immediately disable SSLv2 and SSLv3. Require TLS 1.2 or TLS 1.3 minimum.",
+                    explanation=FindingExplanation(
+                        finding_id="FINDING-INSECURE-LEGACY-SSL",
+                        rule_id="RULE-LEGACY-SSL-VERSION",
+                        why_triggered=f"{ver.value} is cryptographically broken and vulnerable to POODLE, DROWN, and padding oracle attacks.",
+                        evidence=[
+                            FindingEvidenceItem(
+                                type="TLS_VERSION",
+                                frame=server_frame,
+                                field="negotiated_tls_version",
+                                observed_value=ver.value
+                            )
+                        ],
+                        confidence_boundary="TLS Record layer and ServerHello version byte dissection.",
+                        standards_refs=["RFC 6176", "RFC 7568"]
+                    )
                 ))
             elif ver in [TLSVersion.TLSv1_0, TLSVersion.TLSv1_1]:
                 findings.append(SecurityFinding(
@@ -102,8 +198,23 @@ class CryptographicRuleEngine:
                     severity=FindingSeverity.HIGH,
                     category=FindingCategory.CRYPTOGRAPHIC_STRENGTH,
                     description=f"{ver.value} was formally deprecated by IETF (RFC 8996) due to weak cryptographic primitives and known attacks (BEAST, Lucky13).",
-                    evidence_frames=get_frames(tls.client_hello_frame, tls.server_hello_frame),
-                    recommendation="Disable TLS 1.0 and TLS 1.1 across all mail server configurations. Enforce TLS 1.2 and TLS 1.3."
+                    evidence_frames=tls_frames,
+                    recommendation="Disable TLS 1.0 and TLS 1.1 across all mail server configurations. Enforce TLS 1.2 and TLS 1.3.",
+                    explanation=FindingExplanation(
+                        finding_id="FINDING-DEPRECATED-TLS-VERSION",
+                        rule_id="RULE-DEPRECATED-TLS-VERSION",
+                        why_triggered=f"{ver.value} was formally deprecated by IETF (RFC 8996) due to weak cryptographic primitives.",
+                        evidence=[
+                            FindingEvidenceItem(
+                                type="TLS_VERSION",
+                                frame=server_frame,
+                                field="negotiated_tls_version",
+                                observed_value=ver.value
+                            )
+                        ],
+                        confidence_boundary="TLS ServerHello Record and Handshake version verification.",
+                        standards_refs=["RFC 8996"]
+                    )
                 ))
             elif ver == TLSVersion.TLSv1_2:
                 findings.append(SecurityFinding(
@@ -112,8 +223,23 @@ class CryptographicRuleEngine:
                     severity=FindingSeverity.INFO,
                     category=FindingCategory.CRYPTOGRAPHIC_STRENGTH,
                     description="TLS 1.2 negotiated. Valid standard, though TLS 1.3 is strongly recommended for enhanced security and zero plaintext handshake parameters.",
-                    evidence_frames=get_frames(tls.client_hello_frame, tls.server_hello_frame),
-                    recommendation="Plan upgrade to TLS 1.3 to benefit from modern AEAD ciphers and encrypted certificate handshakes."
+                    evidence_frames=tls_frames,
+                    recommendation="Plan upgrade to TLS 1.3 to benefit from modern AEAD ciphers and encrypted certificate handshakes.",
+                    explanation=FindingExplanation(
+                        finding_id="FINDING-TLS12-ACCEPTABLE",
+                        rule_id="RULE-TLS12-BASELINE",
+                        why_triggered="TLS 1.2 negotiated. Valid standard, though TLS 1.3 is strongly recommended.",
+                        evidence=[
+                            FindingEvidenceItem(
+                                type="TLS_VERSION",
+                                frame=server_frame,
+                                field="negotiated_tls_version",
+                                observed_value="TLS 1.2"
+                            )
+                        ],
+                        confidence_boundary="TLS ServerHello version field.",
+                        standards_refs=["RFC 5246"]
+                    )
                 ))
             elif ver == TLSVersion.TLSv1_3:
                 findings.append(SecurityFinding(
@@ -122,8 +248,23 @@ class CryptographicRuleEngine:
                     severity=FindingSeverity.INFO,
                     category=FindingCategory.CRYPTOGRAPHIC_STRENGTH,
                     description="TLS 1.3 successfully negotiated with modern AEAD encryption and encrypted handshake extensions (RFC 8446).",
-                    evidence_frames=get_frames(tls.client_hello_frame, tls.server_hello_frame),
-                    recommendation="Maintain TLS 1.3 configuration."
+                    evidence_frames=tls_frames,
+                    recommendation="Maintain TLS 1.3 configuration.",
+                    explanation=FindingExplanation(
+                        finding_id="FINDING-TLS13-STATE-OF-THE-ART",
+                        rule_id="RULE-TLS13-MODERN",
+                        why_triggered="TLS 1.3 successfully negotiated with modern AEAD encryption and encrypted handshake extensions.",
+                        evidence=[
+                            FindingEvidenceItem(
+                                type="TLS_VERSION",
+                                frame=server_frame,
+                                field="negotiated_tls_version",
+                                observed_value="TLS 1.3"
+                            )
+                        ],
+                        confidence_boundary="TLS 1.3 supported_versions extension (RFC 8446 Section 4.2.1).",
+                        standards_refs=["RFC 8446"]
+                    )
                 ))
 
             # ------------------------------------------------------
@@ -139,7 +280,22 @@ class CryptographicRuleEngine:
                         category=FindingCategory.CRYPTOGRAPHIC_STRENGTH,
                         description=f"Cipher suite {cipher.name} uses obsolete or broken cryptographic algorithms (RC4, 3DES, NULL, or DES).",
                         evidence_frames=get_frames(tls.server_hello_frame),
-                        recommendation="Remove obsolete ciphers from server cipher suite configuration."
+                        recommendation="Remove obsolete ciphers from server cipher suite configuration.",
+                        explanation=FindingExplanation(
+                            finding_id="FINDING-INSECURE-CIPHER-SUITE",
+                            rule_id="RULE-INSECURE-CIPHER",
+                            why_triggered=f"Cipher suite {cipher.name} uses obsolete or broken cryptographic algorithms.",
+                            evidence=[
+                                FindingEvidenceItem(
+                                    type="CIPHER_SUITE",
+                                    frame=tls.server_hello_frame,
+                                    field="selected_cipher_name",
+                                    observed_value=f"{cipher.name} ({cipher.hex_code})"
+                                )
+                            ],
+                            confidence_boundary="TLS ServerHello cipher suite code mapping.",
+                            standards_refs=["RFC 7465", "RFC 8446"]
+                        )
                     ))
                 elif cipher.strength == SecurityStrength.DEPRECATED:
                     findings.append(SecurityFinding(
@@ -149,7 +305,22 @@ class CryptographicRuleEngine:
                         category=FindingCategory.CRYPTOGRAPHIC_STRENGTH,
                         description=f"Cipher suite {cipher.name} uses legacy CBC mode encryption or SHA-1 MAC.",
                         evidence_frames=get_frames(tls.server_hello_frame),
-                        recommendation="Enforce modern AEAD cipher suites (AES-GCM or ChaCha20-Poly1305)."
+                        recommendation="Enforce modern AEAD cipher suites (AES-GCM or ChaCha20-Poly1305).",
+                        explanation=FindingExplanation(
+                            finding_id="FINDING-DEPRECATED-CIPHER-SUITE",
+                            rule_id="RULE-DEPRECATED-CIPHER",
+                            why_triggered=f"Cipher suite {cipher.name} uses legacy CBC mode encryption or SHA-1 MAC.",
+                            evidence=[
+                                FindingEvidenceItem(
+                                    type="CIPHER_SUITE",
+                                    frame=tls.server_hello_frame,
+                                    field="selected_cipher_name",
+                                    observed_value=f"{cipher.name} ({cipher.hex_code})"
+                                )
+                            ],
+                            confidence_boundary="TLS ServerHello cipher suite code mapping.",
+                            standards_refs=["RFC 8996", "RFC 5246"]
+                        )
                     ))
 
             # ------------------------------------------------------
@@ -166,7 +337,22 @@ class CryptographicRuleEngine:
                         "If the server private key is compromised in the future, all previously recorded sessions can be retroactively decrypted."
                     ),
                     evidence_frames=get_frames(tls.server_hello_frame),
-                    recommendation="Disable static RSA cipher suites (TLS_RSA_WITH_*). Enforce ECDHE (Elliptic Curve Diffie-Hellman Ephemeral) or DHE."
+                    recommendation="Disable static RSA cipher suites (TLS_RSA_WITH_*). Enforce ECDHE (Elliptic Curve Diffie-Hellman Ephemeral) or DHE.",
+                    explanation=FindingExplanation(
+                        finding_id="FINDING-NO-FORWARD-SECRECY",
+                        rule_id="RULE-STATIC-RSA-NO-PFS",
+                        why_triggered="The session negotiated a static RSA key exchange without Forward Secrecy.",
+                        evidence=[
+                            FindingEvidenceItem(
+                                type="FORWARD_SECRECY",
+                                frame=tls.server_hello_frame,
+                                field="key_exchange",
+                                observed_value=cipher.key_exchange if cipher else "Static RSA"
+                            )
+                        ],
+                        confidence_boundary="Passive key exchange mechanism identification from negotiated cipher suite.",
+                        standards_refs=["RFC 5246", "RFC 8446"]
+                    )
                 ))
             elif tls.has_forward_secrecy is True:
                 findings.append(SecurityFinding(
@@ -176,7 +362,22 @@ class CryptographicRuleEngine:
                     category=FindingCategory.FORWARD_SECRECY,
                     description=f"Session protects past traffic from retroactive decryption: {tls.pfs_status}.",
                     evidence_frames=get_frames(tls.server_hello_frame),
-                    recommendation=None
+                    recommendation=None,
+                    explanation=FindingExplanation(
+                        finding_id="FINDING-FORWARD-SECRECY-VERIFIED",
+                        rule_id="RULE-PFS-VERIFIED",
+                        why_triggered=f"Session protects past traffic from retroactive decryption: {tls.pfs_status}.",
+                        evidence=[
+                            FindingEvidenceItem(
+                                type="FORWARD_SECRECY",
+                                frame=tls.server_hello_frame,
+                                field="pfs_status",
+                                observed_value=tls.pfs_status
+                            )
+                        ],
+                        confidence_boundary="Observable ECDHE / DHE or TLS 1.3 key share evidence.",
+                        standards_refs=["RFC 8446", "RFC 7919"]
+                    )
                 ))
 
             # ------------------------------------------------------
@@ -192,7 +393,23 @@ class CryptographicRuleEngine:
                         category=FindingCategory.POST_QUANTUM_READINESS,
                         description=pqc_result.evidence_summary,
                         evidence_frames=pqc_result.evidence_frames,
-                        recommendation=pqc_result.recommendation
+                        recommendation=pqc_result.recommendation,
+                        explanation=FindingExplanation(
+                            finding_id="FINDING-PQC-HYBRID-VERIFIED",
+                            rule_id="RULE-PQC-HYBRID-KEM",
+                            why_triggered="Post-Quantum hybrid key exchange verified with standardized ML-KEM algorithm.",
+                            evidence=[
+                                FindingEvidenceItem(
+                                    type="PQC_KEY_SHARE",
+                                    frame=f,
+                                    field="selected_group",
+                                    observed_value=tls.selected_group or "Standardized Hybrid ML-KEM"
+                                )
+                                for f in (pqc_result.evidence_frames or get_frames(tls.server_hello_frame))
+                            ],
+                            confidence_boundary="Direct observation of IANA-standardized hybrid NamedGroup in TLS KeyShare.",
+                            standards_refs=["NIST FIPS 203", "draft-ietf-tls-hybrid-design"]
+                        )
                     ))
                 elif pqc_result.pqc_status == PQCStatus.PQC_PROTECTED:
                     findings.append(SecurityFinding(
@@ -202,7 +419,23 @@ class CryptographicRuleEngine:
                         category=FindingCategory.POST_QUANTUM_READINESS,
                         description=pqc_result.evidence_summary,
                         evidence_frames=pqc_result.evidence_frames,
-                        recommendation=pqc_result.recommendation
+                        recommendation=pqc_result.recommendation,
+                        explanation=FindingExplanation(
+                            finding_id="FINDING-PQC-PROTECTED",
+                            rule_id="RULE-PQC-STANDALONE-KEM",
+                            why_triggered="Standalone Post-quantum key exchange verified.",
+                            evidence=[
+                                FindingEvidenceItem(
+                                    type="PQC_KEY_SHARE",
+                                    frame=f,
+                                    field="selected_group",
+                                    observed_value=tls.selected_group or "Standardized Standalone ML-KEM"
+                                )
+                                for f in (pqc_result.evidence_frames or get_frames(tls.server_hello_frame))
+                            ],
+                            confidence_boundary="Direct observation of IANA-standardized standalone ML-KEM NamedGroup.",
+                            standards_refs=["NIST FIPS 203"]
+                        )
                     ))
                 elif pqc_result.pqc_status == PQCStatus.CLASSICAL_ONLY:
                     findings.append(SecurityFinding(
@@ -212,9 +445,26 @@ class CryptographicRuleEngine:
                         category=FindingCategory.POST_QUANTUM_READINESS,
                         description=pqc_result.evidence_summary,
                         evidence_frames=pqc_result.evidence_frames,
-                        recommendation=pqc_result.recommendation
+                        recommendation=pqc_result.recommendation,
+                        explanation=FindingExplanation(
+                            finding_id="FINDING-PQC-CLASSICAL-KEX-EXPOSURE",
+                            rule_id="RULE-PQC-HNDL-EXPOSURE",
+                            why_triggered="Session relies purely on classical discrete log/factoring key exchange, exposing session to Harvest Now, Decrypt Later (HNDL).",
+                            evidence=[
+                                FindingEvidenceItem(
+                                    type="PQC_ASSESSMENT",
+                                    frame=f,
+                                    field="key_exchange_posture",
+                                    observed_value=tls.selected_group or (tls.cipher_info.key_exchange if tls.cipher_info else "Classical Key Exchange")
+                                )
+                                for f in (pqc_result.evidence_frames or get_frames(tls.server_hello_frame))
+                            ],
+                            confidence_boundary="Passive observation confirmed absence of post-quantum key shares.",
+                            standards_refs=["NIST FIPS 203", "NIST SP 800-227"]
+                        )
                     ))
                 elif pqc_result.pqc_status == PQCStatus.ASSESSMENT_INCOMPLETE:
+                    pqc_ev_frames = pqc_result.evidence_frames or get_frames(tls.client_hello_frame, tls.server_hello_frame)
                     findings.append(SecurityFinding(
                         id="FINDING-PQC-CLASSICAL-KEX-EXPOSURE",
                         title="Vulnerable to Harvest Now, Decrypt Later (HNDL)",
@@ -225,8 +475,24 @@ class CryptographicRuleEngine:
                             "No verified post-quantum key-establishment evidence was observed in the passive capture; "
                             "therefore HNDL exposure remains an incomplete evidence-bounded assessment."
                         ),
-                        evidence_frames=pqc_result.evidence_frames or get_frames(tls.client_hello_frame, tls.server_hello_frame),
-                        recommendation="Consider hybrid key establishment combining classical key exchange with ML-KEM, where appropriate. ML-KEM is standardized in NIST FIPS 203."
+                        evidence_frames=pqc_ev_frames,
+                        recommendation="Consider hybrid key establishment combining classical key exchange with ML-KEM, where appropriate. ML-KEM is standardized in NIST FIPS 203.",
+                        explanation=FindingExplanation(
+                            finding_id="FINDING-PQC-CLASSICAL-KEX-EXPOSURE",
+                            rule_id="RULE-PQC-HNDL-EXPOSURE",
+                            why_triggered="Post-quantum readiness could not be fully established from observable passive evidence; HNDL exposure assessment is incomplete.",
+                            evidence=[
+                                FindingEvidenceItem(
+                                    type="PQC_ASSESSMENT",
+                                    frame=f,
+                                    field="pqc_readiness_state",
+                                    observed_value="ASSESSMENT_INCOMPLETE (No observable PQC KeyShare)"
+                                )
+                                for f in pqc_ev_frames
+                            ],
+                            confidence_boundary="Passive observation bounds; KeyShare extension unobserved.",
+                            standards_refs=["NIST FIPS 203"]
+                        )
                     ))
 
         # ----------------------------------------------------------

@@ -175,6 +175,7 @@ class TLSHandshakeDetails:
     certificate_key_type: Optional[str] = None
     certificate_key_size: Optional[int] = None
     certificate_sig_alg: Optional[str] = None
+    certificate_fingerprint_sha256: Optional[str] = None
 
 
 @dataclass
@@ -204,6 +205,26 @@ class EvidenceConfidence:
 
 
 @dataclass
+class FindingEvidenceItem:
+    """Explicit evidence element supporting a deterministic finding."""
+    type: str                            # e.g., "FRAME_HEADER", "PROTOCOL_COMMAND", "CIPHER_SUITE", "TLS_VERSION", "KEY_SHARE"
+    frame: Optional[int]                 # Frame number where evidence was observed (None if absent/inferred from stream)
+    field: str                           # Observed attribute or field name
+    observed_value: str                  # Value extracted directly from packet evidence
+
+
+@dataclass
+class FindingExplanation:
+    """Structured explainability (XAI) metadata for a deterministic security finding."""
+    finding_id: str
+    rule_id: str
+    why_triggered: str
+    evidence: List[FindingEvidenceItem] = field(default_factory=list)
+    confidence_boundary: str = "PASSIVE_OBSERVABILITY_BOUNDED"
+    standards_refs: List[str] = field(default_factory=list)
+
+
+@dataclass
 class SecurityFinding:
     """Individual frame-backed security finding or vulnerability item."""
     id: str                              # e.g., "FINDING-TLS13-PFS-VERIFIED"
@@ -213,6 +234,7 @@ class SecurityFinding:
     description: str
     evidence_frames: List[int] = field(default_factory=list)
     recommendation: Optional[str] = None
+    explanation: Optional[FindingExplanation] = None
 
 
 @dataclass

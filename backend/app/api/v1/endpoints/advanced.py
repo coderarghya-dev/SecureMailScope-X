@@ -101,8 +101,13 @@ def get_analysis_incidents(analysis_id: str) -> List[Dict[str, Any]]:
     analysis = AnalysisService.get_analysis(analysis_id)
     if not analysis:
         raise HTTPException(status_code=404, detail=f"Analysis '{analysis_id}' not found.")
-    incidents = IncidentCorrelator.correlate_sessions(analysis.sessions)
-    return [i.to_dict() for i in incidents]
+    if analysis.correlated_incidents:
+        return [i.model_dump() if hasattr(i, "model_dump") else i.dict() for i in analysis.correlated_incidents]
+    item = AnalysisService._cache.get(analysis_id)
+    if item:
+        incidents = IncidentCorrelator.correlate_sessions(item[1])
+        return [i.to_dict() for i in incidents]
+    return []
 
 
 # 4. ML Triage & XAI
