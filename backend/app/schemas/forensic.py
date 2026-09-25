@@ -128,11 +128,11 @@ class CipherSuiteInfo:
     """Cryptographic properties of an observed or offered cipher suite."""
     hex_code: str
     name: str
-    has_pfs: bool
     key_exchange: str
     encryption: str
     hash_algorithm: str
     strength: SecurityStrength
+    has_pfs: Optional[bool] = None
     is_post_quantum_safe: bool = False
 
 

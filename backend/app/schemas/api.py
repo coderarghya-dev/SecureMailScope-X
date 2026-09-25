@@ -60,7 +60,7 @@ class STARTTLSStateDTO(BaseModel):
 class CipherSuiteInfoDTO(BaseModel):
     hex_code: str
     name: str
-    has_pfs: bool
+    has_pfs: Optional[bool] = None
     key_exchange: str
     encryption: str
     hash_algorithm: str

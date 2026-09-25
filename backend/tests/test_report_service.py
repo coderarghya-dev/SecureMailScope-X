@@ -48,7 +48,7 @@ class TestForensicReportService(unittest.TestCase):
         self.assertEqual(report.executive_summary.security_grade, "A")
         self.assertEqual(report.executive_summary.security_score, 95)
         self.assertEqual(report.executive_summary.capture_health_score, 100)
-        self.assertEqual(report.executive_summary.evidence_confidence_score, 95)
+        self.assertEqual(report.executive_summary.evidence_confidence_score, 80)
         self.assertIn("Assessment Incomplete", report.executive_summary.pqc_hndl_assessment_state)
 
         # 3. Session Inventory

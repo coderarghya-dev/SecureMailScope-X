@@ -154,7 +154,7 @@ class CryptographicRuleEngine:
             # ------------------------------------------------------
             # RULE 5: FORWARD SECRECY (PFS) EVALUATION
             # ------------------------------------------------------
-            if tls.has_forward_secrecy is False or (ver == TLSVersion.TLSv1_2 and cipher and not cipher.has_pfs):
+            if tls.has_forward_secrecy is False or (ver == TLSVersion.TLSv1_2 and cipher and cipher.has_pfs is False):
                 findings.append(SecurityFinding(
                     id="FINDING-NO-FORWARD-SECRECY",
                     title="No Perfect Forward Secrecy (Static Key Exchange)",
@@ -213,7 +213,7 @@ class CryptographicRuleEngine:
         elif tls and tls.negotiated_tls_version in [TLSVersion.TLSv1_0, TLSVersion.TLSv1_1]:
             grade = SecurityGrade.D
             rationale = "Deprecated TLS 1.0/1.1 version negotiated (RFC 8996 violation)."
-        elif tls and (tls.has_forward_secrecy is False or (tls.negotiated_tls_version == TLSVersion.TLSv1_2 and tls.cipher_info and not tls.cipher_info.has_pfs)):
+        elif tls and (tls.has_forward_secrecy is False or (tls.negotiated_tls_version == TLSVersion.TLSv1_2 and tls.cipher_info and tls.cipher_info.has_pfs is False)):
             grade = SecurityGrade.C
             rationale = "TLS 1.2 negotiated but lacks Forward Secrecy (static RSA key exchange)."
         elif tls and tls.negotiated_tls_version == TLSVersion.TLSv1_2:

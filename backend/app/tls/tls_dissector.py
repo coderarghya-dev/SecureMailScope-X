@@ -262,7 +262,7 @@ class TLSDissector:
 
         elif (
             cipher_info
-            and cipher_info.has_pfs
+            and cipher_info.has_pfs is True
             and (
                 server_kx_observed
                 or "ecdhe" in (cipher_info.name or "").lower()
@@ -299,7 +299,7 @@ class TLSDissector:
                 "parser"
             )
 
-        elif cipher_info and not cipher_info.has_pfs:
+        elif cipher_info and cipher_info.has_pfs is False:
 
             details.has_forward_secrecy = False
 

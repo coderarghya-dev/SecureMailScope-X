@@ -94,12 +94,9 @@ class ConfidenceScorer:
                 f"{tls_details.pfs_status}"
             )
         else:
-            if tls_details.negotiated_tls_version == TLSVersion.TLSv1_3:
-                score += 15
-                factors.append(
-                    "TLS 1.3 negotiated; standard specification enforces "
-                    "mandatory ephemeral Diffie-Hellman key exchange"
-                )
+            factors.append(
+                "Key exchange / Forward Secrecy could not be verified from observable passive evidence"
+            )
 
         boundary = None
 

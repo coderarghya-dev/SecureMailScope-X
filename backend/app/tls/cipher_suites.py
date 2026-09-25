@@ -13,7 +13,7 @@ CIPHER_SUITE_DATABASE: Dict[str, CipherSuiteInfo] = {
     "0x1301": CipherSuiteInfo(
         hex_code="0x1301",
         name="TLS_AES_128_GCM_SHA256",
-        has_pfs=False,
+        has_pfs=None,
         key_exchange="Key Share (TLS 1.3)",
         encryption="AES-128-GCM (AEAD)",
         hash_algorithm="SHA-256",
@@ -23,7 +23,7 @@ CIPHER_SUITE_DATABASE: Dict[str, CipherSuiteInfo] = {
     "0x1302": CipherSuiteInfo(
         hex_code="0x1302",
         name="TLS_AES_256_GCM_SHA384",
-        has_pfs=False,
+        has_pfs=None,
         key_exchange="Key Share (TLS 1.3)",
         encryption="AES-256-GCM (AEAD)",
         hash_algorithm="SHA-384",
@@ -33,7 +33,7 @@ CIPHER_SUITE_DATABASE: Dict[str, CipherSuiteInfo] = {
     "0x1303": CipherSuiteInfo(
         hex_code="0x1303",
         name="TLS_CHACHA20_POLY1305_SHA256",
-        has_pfs=False,
+        has_pfs=None,
         key_exchange="Key Share (TLS 1.3)",
         encryption="CHACHA20-POLY1305 (AEAD)",
         hash_algorithm="SHA-256",
@@ -43,7 +43,7 @@ CIPHER_SUITE_DATABASE: Dict[str, CipherSuiteInfo] = {
     "0x1304": CipherSuiteInfo(
         hex_code="0x1304",
         name="TLS_AES_128_CCM_SHA256",
-        has_pfs=False,
+        has_pfs=None,
         key_exchange="Key Share (TLS 1.3)",
         encryption="AES-128-CCM (AEAD)",
         hash_algorithm="SHA-256",
@@ -251,13 +251,24 @@ def lookup_cipher_suite(code_or_name: str) -> Optional[CipherSuiteInfo]:
             return cipher
 
     # Unknown or unmapped cipher
-    has_pfs = "ecdhe" in val or "dhe" in val
-    strength = SecurityStrength.ACCEPTABLE if has_pfs else SecurityStrength.DEPRECATED
+    if "ecdhe" in val or "dhe" in val:
+        has_pfs = True
+        kex_str = "ECDHE/DHE"
+        strength = SecurityStrength.ACCEPTABLE
+    elif "rsa" in val:
+        has_pfs = False
+        kex_str = "RSA (Static)"
+        strength = SecurityStrength.ACCEPTABLE
+    else:
+        has_pfs = None
+        kex_str = "Unknown"
+        strength = SecurityStrength.DEPRECATED
+
     return CipherSuiteInfo(
         hex_code=val if val.startswith("0x") else f"0x{val}",
         name=code_or_name,
         has_pfs=has_pfs,
-        key_exchange="ECDHE/DHE" if has_pfs else "RSA/Unknown",
+        key_exchange=kex_str,
         encryption="Unknown",
         hash_algorithm="Unknown",
         strength=strength,
