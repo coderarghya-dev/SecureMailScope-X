@@ -11,6 +11,7 @@ from app.services.analysis_service import AnalysisService
 from app.services.case_service import CaseService
 from app.scanner.active_scanner import ActiveMailScanner
 from app.scanner.mail_posture_scanner import MailPostureScanner
+from app.forensic.remediation_simulator import RemediationSimulator
 from app.simulation.simulate_fix import SimulateFixEngine
 from app.forensic.incident_correlator import IncidentCorrelator
 from app.ml.risk_classifier import MLRiskClassifier
@@ -34,8 +35,10 @@ class MailPostureScanRequest(BaseModel):
 
 
 class SimulateFixRequest(BaseModel):
-    analysis_id: str
+    analysis_id: Optional[str] = None
     session_id: str
+    remediations: Optional[List[str]] = None
+    parameters: Optional[Dict[str, Any]] = None
     require_tls13: bool = False
     require_tls12_plus: bool = True
     remove_static_rsa: bool = True
@@ -90,12 +93,49 @@ def probe_mail_server(req: ActiveScanRequest) -> Dict[str, Any]:
     return report.to_dict()
 
 
-# 2. Simulate Fix
-@router.post("/simulation/simulate", summary="Execute Deterministic What-If Fix Simulation")
-def simulate_fix(req: SimulateFixRequest) -> Dict[str, Any]:
-    analysis = AnalysisService.get_analysis(req.analysis_id)
+# 2. Simulate Fix / What-If Remediation (Phase 10)
+@router.post("/analyses/{analysis_id}/simulate-fix", summary="Execute Evidence-Preserving Remediation Simulation")
+def simulate_analysis_fix(analysis_id: str, req: SimulateFixRequest) -> Dict[str, Any]:
+    analysis = AnalysisService.get_analysis(analysis_id)
     if not analysis:
-        raise HTTPException(status_code=404, detail=f"Analysis '{req.analysis_id}' not found.")
+        raise HTTPException(status_code=404, detail=f"Analysis '{analysis_id}' not found.")
+
+    target_session = None
+    for s in analysis.sessions:
+        if s.session_id == req.session_id:
+            target_session = s
+            break
+    if not target_session:
+        raise HTTPException(status_code=404, detail=f"Session '{req.session_id}' not found in analysis.")
+
+    actions = req.remediations
+    if not actions:
+        actions = []
+        if req.require_tls12_plus or req.require_tls13:
+            actions.append("DISABLE_DEPRECATED_TLS")
+        if req.remove_static_rsa:
+            actions.append("ENABLE_FORWARD_SECRECY")
+        if req.remove_deprecated_ciphers:
+            actions.append("REPLACE_WEAK_CIPHER")
+        if req.enable_pqc_hybrid:
+            actions.append("ENABLE_HYBRID_PQC")
+
+    report = RemediationSimulator.simulate(
+        session=target_session,
+        remediations=actions,
+        parameters=req.parameters,
+    )
+    return report.to_dict()
+
+
+@router.post("/simulation/simulate", summary="Execute Deterministic What-If Fix Simulation (Legacy Bridge)")
+def simulate_fix(req: SimulateFixRequest) -> Dict[str, Any]:
+    target_aid = req.analysis_id
+    if not target_aid:
+        raise HTTPException(status_code=400, detail="analysis_id is required.")
+    analysis = AnalysisService.get_analysis(target_aid)
+    if not analysis:
+        raise HTTPException(status_code=404, detail=f"Analysis '{target_aid}' not found.")
     
     target_session = None
     for s in analysis.sessions:
@@ -112,6 +152,7 @@ def simulate_fix(req: SimulateFixRequest) -> Dict[str, Any]:
         remove_static_rsa=req.remove_static_rsa,
         remove_deprecated_ciphers=req.remove_deprecated_ciphers,
         enable_pqc_hybrid=req.enable_pqc_hybrid,
+        remediations=req.remediations,
     )
     return projected.to_dict()
 

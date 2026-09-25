@@ -1,21 +1,12 @@
 """
-SecureMailScope X - Deterministic 'What If / Simulate Fix' Engine
-Projects posture changes under remediation actions without modifying authoritative packet evidence.
+SecureMailScope X - Deterministic 'What If / Simulate Fix' Engine (Phase 10 Bridge)
+Maintains backward compatibility while delegating to the evidence-preserving RemediationSimulator.
 """
 
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
-from app.schemas.forensic import (
-    EmailSession, SecurityGrade, FindingSeverity, SecurityFinding, TLSVersion
-)
-
-
-@dataclass
-class SimulationAction:
-    action_id: str
-    title: str
-    description: str
-    enabled: bool = True
+from app.schemas.forensic import EmailSession
+from app.forensic.remediation_simulator import RemediationSimulator, RemediationSimulationReport
 
 
 @dataclass
@@ -28,7 +19,10 @@ class ProjectedPosture:
     eliminated_findings: List[str] = field(default_factory=list)
     remaining_findings: List[str] = field(default_factory=list)
     applied_remediations: List[str] = field(default_factory=list)
-    disclaimer: str = "PROJECTED POSTURE — Simulation only. Does not alter verified forensic evidence."
+    disclaimer: str = (
+        "PROJECTED POSTURE — Simulation only. Hypothetical policy projection that does not alter verified historical PCAP evidence."
+    )
+    simulation_report: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -41,11 +35,12 @@ class ProjectedPosture:
             "remaining_findings": self.remaining_findings,
             "applied_remediations": self.applied_remediations,
             "disclaimer": self.disclaimer,
+            "simulation_report": self.simulation_report,
         }
 
 
 class SimulateFixEngine:
-    """Calculates deterministic projected risk posture under hypothetical security hardening."""
+    """Legacy wrapper for RemediationSimulator."""
 
     @classmethod
     def simulate(
@@ -57,68 +52,50 @@ class SimulateFixEngine:
         remove_deprecated_ciphers: bool = True,
         enable_pqc_hybrid: bool = False,
         enforce_starttls_mandatory: bool = True,
+        remediations: Optional[List[str]] = None,
     ) -> ProjectedPosture:
-        assessment = session.security_assessment
-        current_grade = assessment.grade.value if assessment else "F"
-        current_findings = assessment.findings if assessment else []
-
-        eliminated = []
-        remaining = []
-        applied = []
-
-        # Evaluate simulated actions against current findings
-        for f in current_findings:
-            eliminated_flag = False
-
-            if "FINDING-PLAINTEXT" in f.id or "FINDING-CLEAR-TEXT" in f.id or "FINDING-UNENCRYPTED" in f.id:
-                if enforce_starttls_mandatory:
-                    eliminated_flag = True
-                    applied.append("Enforced mandatory STARTTLS / Direct TLS")
-            
-            elif "FINDING-DEPRECATED-TLS" in f.id:
-                if require_tls12_plus or require_tls13:
-                    eliminated_flag = True
-                    applied.append("Disabled TLS 1.0 / TLS 1.1")
-
-            elif "FINDING-NO-FORWARD-SECRECY" in f.id:
-                if remove_static_rsa or require_tls13:
-                    eliminated_flag = True
-                    applied.append("Disabled static RSA key exchange (enforced ECDHE/DHE)")
-
-            elif "FINDING-DEPRECATED-CIPHER" in f.id:
-                if remove_deprecated_ciphers or require_tls13:
-                    eliminated_flag = True
-                    applied.append("Removed legacy CBC/3DES/RC4 cipher suites")
-
-            elif "FINDING-PQC-CLASSICAL-KEX" in f.id:
-                if enable_pqc_hybrid:
-                    eliminated_flag = True
-                    applied.append("Enabled NIST FIPS 203 ML-KEM hybrid key exchange (X25519MLKEM768)")
-
-            if eliminated_flag:
-                eliminated.append(f"{f.id}: {f.title}")
-            else:
-                remaining.append(f"{f.id}: {f.title}")
-
-        # Recalculate projected grade
-        if require_tls13 and enable_pqc_hybrid and not remaining:
-            projected_grade = SecurityGrade.A_PLUS.value
-        elif require_tls13 and not remaining:
-            projected_grade = SecurityGrade.A.value
-        elif require_tls12_plus and remove_static_rsa and not any("CRITICAL" in r or "DEPRECATED" in r for r in remaining):
-            projected_grade = SecurityGrade.B.value
-        elif any("FINDING-PLAINTEXT" in r for r in remaining):
-            projected_grade = SecurityGrade.F.value
+        """Translates legacy flags into remediation action tokens and executes RemediationSimulator."""
+        actions: List[str] = []
+        if remediations:
+            actions.extend(remediations)
         else:
-            projected_grade = SecurityGrade.B.value
+            if enforce_starttls_mandatory:
+                actions.append("REQUIRE_STARTTLS")
+            if require_tls12_plus or require_tls13:
+                actions.append("DISABLE_DEPRECATED_TLS")
+            if remove_static_rsa:
+                actions.append("ENABLE_FORWARD_SECRECY")
+            if remove_deprecated_ciphers:
+                actions.append("REPLACE_WEAK_CIPHER")
+            if enable_pqc_hybrid:
+                actions.append("ENABLE_HYBRID_PQC")
+
+        report = RemediationSimulator.simulate(
+            session=session,
+            remediations=actions,
+            parameters={"require_tls13": require_tls13},
+        )
+
+        eliminated_str = [
+            f"{f.get('id')}: {f.get('title')}" for f in report.projected_findings_removed
+        ]
+        remaining_str = [
+            f"{f.get('id')}: {f.get('title')}" for f in report.projected_findings_remaining
+        ]
+
+        obs_grade = report.observed_summary.security_grade if report.observed_summary else "F"
+        proj_grade = report.simulated_summary.projected_security_grade if report.simulated_summary else "F"
+        obs_cnt = report.observed_summary.findings_count if report.observed_summary else 0
+        proj_cnt = report.simulated_summary.projected_findings_count if report.simulated_summary else 0
 
         return ProjectedPosture(
             session_id=session.session_id,
-            current_grade=current_grade,
-            projected_grade=projected_grade,
-            current_findings_count=len(current_findings),
-            projected_findings_count=len(remaining),
-            eliminated_findings=eliminated,
-            remaining_findings=remaining,
-            applied_remediations=list(set(applied)),
+            current_grade=obs_grade,
+            projected_grade=proj_grade,
+            current_findings_count=obs_cnt,
+            projected_findings_count=proj_cnt,
+            eliminated_findings=eliminated_str,
+            remaining_findings=remaining_str,
+            applied_remediations=report.applied_remediations,
+            simulation_report=report.to_dict(),
         )

@@ -831,9 +831,8 @@ class CryptographicRuleEngine:
                     ))
 
         # ----------------------------------------------------------
-        # OVERALL SECURITY GRADE CALCULATION
+        # OVERALL SECURITY GRADE CALCULATION (Deterministic Shared Logic)
         # ----------------------------------------------------------
-        # Critical findings from capture-time evidence determine historical SecurityGrade
         critical_cnt = sum(
             1 for f in findings
             if f.severity == FindingSeverity.CRITICAL and f.category != FindingCategory.DOMAIN_AUTHENTICATION
@@ -844,29 +843,23 @@ class CryptographicRuleEngine:
         info_cnt = sum(1 for f in findings if f.severity == FindingSeverity.INFO)
 
         pqc_result = PQCAnalyzer.analyze_session(session)
+        pfs_flag = None
+        if tls:
+            if tls.has_forward_secrecy is not None:
+                pfs_flag = tls.has_forward_secrecy
+            elif tls.cipher_info and tls.cipher_info.has_pfs is not None:
+                pfs_flag = tls.cipher_info.has_pfs
 
-        if session.security_mode == SecurityMode.PLAINTEXT or critical_cnt > 0:
-            grade = SecurityGrade.F
-            rationale = "Unencrypted plaintext traffic or critical cryptographic vulnerabilities detected."
-        elif tls and tls.negotiated_tls_version in [TLSVersion.TLSv1_0, TLSVersion.TLSv1_1]:
-            grade = SecurityGrade.D
-            rationale = "Deprecated TLS 1.0/1.1 version negotiated (RFC 8996 violation)."
-        elif tls and (tls.has_forward_secrecy is False or (tls.negotiated_tls_version == TLSVersion.TLSv1_2 and tls.cipher_info and tls.cipher_info.has_pfs is False)):
-            grade = SecurityGrade.C
-            rationale = "TLS 1.2 negotiated but lacks Forward Secrecy (static RSA key exchange)."
-        elif tls and tls.negotiated_tls_version == TLSVersion.TLSv1_2:
-            grade = SecurityGrade.B
-            rationale = "TLS 1.2 with Forward Secrecy verified. Modern, but upgrade to TLS 1.3 recommended."
-        elif tls and tls.negotiated_tls_version == TLSVersion.TLSv1_3:
-            if pqc_result.pqc_ready and tls.has_forward_secrecy is True:
-                grade = SecurityGrade.A_PLUS
-                rationale = "TLS 1.3 negotiated with Forward Secrecy and Post-Quantum hybrid protection."
-            else:
-                grade = SecurityGrade.A
-                rationale = "TLS 1.3 negotiated (State-of-the-Art Classical security)."
-        else:
-            grade = SecurityGrade.F
-            rationale = "Unknown or unverified security posture."
+        tls_ver = tls.negotiated_tls_version if tls else None
+
+        grade, rationale = cls.compute_security_grade(
+            security_mode=session.security_mode,
+            tls_version=tls_ver,
+            has_pfs=pfs_flag,
+            pqc_ready=pqc_result.pqc_ready,
+            critical_findings_count=critical_cnt,
+            high_findings_count=high_cnt,
+        )
 
         return SessionSecurityAssessment(
             grade=grade,
@@ -880,3 +873,34 @@ class CryptographicRuleEngine:
             post_quantum_ready=pqc_result.pqc_ready,
             post_quantum_summary=pqc_result.evidence_summary
         )
+
+    @classmethod
+    def compute_security_grade(
+        cls,
+        security_mode: SecurityMode,
+        tls_version: Optional[TLSVersion],
+        has_pfs: Optional[bool],
+        pqc_ready: bool,
+        critical_findings_count: int,
+        high_findings_count: int = 0,
+    ) -> tuple[SecurityGrade, str]:
+        """
+        Pure deterministic function computing SecurityGrade and rationale
+        from cryptographic security state and finding counts.
+        Consumed identically by both observed forensic analysis and simulated remediation.
+        """
+        if security_mode == SecurityMode.PLAINTEXT or critical_findings_count > 0:
+            return SecurityGrade.F, "Unencrypted plaintext traffic or critical cryptographic vulnerabilities detected."
+        elif tls_version in [TLSVersion.TLSv1_0, TLSVersion.TLSv1_1]:
+            return SecurityGrade.D, "Deprecated TLS 1.0/1.1 version negotiated (RFC 8996 violation)."
+        elif has_pfs is False or (tls_version == TLSVersion.TLSv1_2 and has_pfs is False):
+            return SecurityGrade.C, "TLS 1.2 negotiated but lacks Forward Secrecy (static RSA key exchange)."
+        elif tls_version == TLSVersion.TLSv1_2:
+            return SecurityGrade.B, "TLS 1.2 with Forward Secrecy verified. Modern, but upgrade to TLS 1.3 recommended."
+        elif tls_version == TLSVersion.TLSv1_3:
+            if pqc_ready and has_pfs is True:
+                return SecurityGrade.A_PLUS, "TLS 1.3 negotiated with Forward Secrecy and Post-Quantum hybrid protection."
+            else:
+                return SecurityGrade.A, "TLS 1.3 negotiated (State-of-the-Art Classical security)."
+        else:
+            return SecurityGrade.F, "Unknown or unverified security posture."
