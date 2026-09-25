@@ -1,0 +1,44 @@
+# Dependencies & Build Artifacts
+frontend/node_modules/
+frontend/dist/
+
+# Python Bytecode & Cache
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# Temporary Uploads
+backend/temp_uploads/
+temp_uploads/
+
+# PCAP & Capture Samples
+pcap_samples/
+*.pcap
+*.pcapng
+*.cap
+
+# Generated Reports & PDFs
+*.pdf
+reports/
+generated_reports/
+
+# Local Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Cryptographic Keys & Certificates
+backend/data/keys/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Build & Runtime Logs
+build-errors.txt
+*.log
