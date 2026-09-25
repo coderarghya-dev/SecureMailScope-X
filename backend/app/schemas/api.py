@@ -162,6 +162,27 @@ class SessionSummaryDTO(BaseModel):
     post_quantum_ready: bool
 
 
+class MLFeatureContributionDTO(BaseModel):
+    feature: str
+    description: str
+    value: float
+    contribution: float
+
+
+class MLTriageDTO(BaseModel):
+    enabled: bool = True
+    model_status: str = "EXPERIMENTAL_ENGINEERING_MODEL"
+    advisory_risk_class: str
+    risk_probability: float
+    model_version: str
+    model_type: str
+    authoritative: bool = False
+    disclaimer: str
+    feature_vector: Dict[str, float]
+    top_risk_contributors: List[MLFeatureContributionDTO] = []
+    top_protective_factors: List[MLFeatureContributionDTO] = []
+
+
 class SessionDetailDTO(BaseModel):
     session_id: str
     stream_index: int
@@ -181,6 +202,7 @@ class SessionDetailDTO(BaseModel):
     evidence_confidence: EvidenceConfidenceDTO
     security_assessment: SecurityAssessmentDTO
     evidence_frames: List[EvidenceFrameDTO] = []
+    ml_triage: Optional[MLTriageDTO] = None
 
 
 # ---------------------------------------------------------------------------

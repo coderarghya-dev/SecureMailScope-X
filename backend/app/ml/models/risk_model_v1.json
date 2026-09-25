@@ -1,8 +1,10 @@
 {
   "model_version": "v1.0.0",
   "model_type": "RandomForestClassifier",
-  "description": "Experimental ML triage model \u2014 not production calibrated",
-  "dataset_type": "Synthetic validation dataset for engineering testing",
+  "random_state": 42,
+  "dataset_version": "synthetic-engineering-v1.0",
+  "dataset_type": "Synthetic validation dataset for engineering testing only \u2014 not real-world generalization data",
+  "evaluation_metrics_disclaimer": "Engineering self-check only \u2014 not generalization performance",
   "feature_names": [
     "tls_version_ord",
     "cipher_strength_ord",
@@ -19,15 +21,27 @@
     "HIGH",
     "CRITICAL"
   ],
-  "feature_importances": {
-    "tls_version_ord": 0.17168903669922458,
-    "cipher_strength_ord": 0.31650187328812396,
-    "security_mode_ord": 0.09388310511013398,
-    "has_forward_secrecy": 0.07396311577882435,
-    "has_post_quantum": 0.13290992596539003,
-    "has_plaintext_exposure": 0.033479427549194994,
-    "capture_confidence": 0.06775305723263318,
-    "capture_health": 0.10982045837647492
+  "class_mapping": {
+    "0": "LOW",
+    "1": "MEDIUM",
+    "2": "HIGH",
+    "3": "CRITICAL"
   },
-  "training_samples_count": 12
+  "class_distribution": {
+    "LOW": 6,
+    "MEDIUM": 6,
+    "HIGH": 6,
+    "CRITICAL": 6
+  },
+  "feature_importances": {
+    "tls_version_ord": 0.21001636878880806,
+    "cipher_strength_ord": 0.3014289189400212,
+    "security_mode_ord": 0.06701617938620776,
+    "has_forward_secrecy": 0.08335058364412669,
+    "has_post_quantum": 0.2049016871509839,
+    "has_plaintext_exposure": 0.02302623742922018,
+    "capture_confidence": 0.03891690609645322,
+    "capture_health": 0.07134311856417902
+  },
+  "training_samples_count": 24
 }

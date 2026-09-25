@@ -36,8 +36,10 @@ from app.schemas.api import (
     SecurityFindingDTO,
     FindingsSummaryDTO,
     EvidenceFrameDTO,
-    PacketEvidenceDTO
+    PacketEvidenceDTO,
+    MLTriageDTO
 )
+from app.ml.risk_classifier import MLRiskClassifier
 
 
 class AnalysisService:
@@ -297,6 +299,27 @@ class AnalysisService:
                 ]
             ]
 
+            # ML-Assisted Triage (Advisory only)
+            ml_triage_dto = None
+            try:
+                ml_res = MLRiskClassifier.classify_session(s)
+                if ml_res:
+                    ml_triage_dto = MLTriageDTO(
+                        enabled=ml_res.get("enabled", True),
+                        model_status=ml_res.get("model_status", "EXPERIMENTAL_ENGINEERING_MODEL"),
+                        advisory_risk_class=ml_res.get("advisory_risk_class", "MEDIUM"),
+                        risk_probability=ml_res.get("risk_probability", 0.5),
+                        model_version=ml_res.get("model_version", "v1.0.0"),
+                        model_type=ml_res.get("model_type", "RandomForestClassifier"),
+                        authoritative=ml_res.get("authoritative", False),
+                        disclaimer=ml_res.get("disclaimer", ""),
+                        feature_vector=ml_res.get("feature_vector", {}),
+                        top_risk_contributors=ml_res.get("top_risk_contributors", []),
+                        top_protective_factors=ml_res.get("top_protective_factors", [])
+                    )
+            except Exception:
+                ml_triage_dto = None
+
             session_dtos.append(SessionDetailDTO(
                 session_id=s.session_id,
                 stream_index=s.stream_index,
@@ -315,7 +338,8 @@ class AnalysisService:
                 capture_health=health_dto,
                 evidence_confidence=conf_dto,
                 security_assessment=sec_dto,
-                evidence_frames=evidence_frames_dtos
+                evidence_frames=evidence_frames_dtos,
+                ml_triage=ml_triage_dto
             ))
 
         primary_conf_score = session_dtos[0].evidence_confidence.score if session_dtos else 95
