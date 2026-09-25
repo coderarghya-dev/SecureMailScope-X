@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from app.services.analysis_service import AnalysisService
 from app.services.case_service import CaseService
 from app.scanner.active_scanner import ActiveMailScanner
+from app.scanner.mail_posture_scanner import MailPostureScanner
 from app.simulation.simulate_fix import SimulateFixEngine
 from app.forensic.incident_correlator import IncidentCorrelator
 from app.ml.risk_classifier import MLRiskClassifier
@@ -24,6 +25,12 @@ router = APIRouter()
 class ActiveScanRequest(BaseModel):
     target_host: str
     ports: Optional[List[int]] = None
+
+
+class MailPostureScanRequest(BaseModel):
+    target: str
+    ports: Optional[List[int]] = None
+    validate_cert_trust: bool = False
 
 
 class SimulateFixRequest(BaseModel):
@@ -60,8 +67,22 @@ class SignReportRequest(BaseModel):
     analyst_name: Optional[str] = "Local Forensic Analyst"
 
 
-# 1. Active Scanner
-@router.post("/scanner/probe", summary="Execute Active Mail Server Security Probe")
+# 1. Active Scanner (Phase 9 Posture Scanner & Legacy Probe)
+@router.post("/scanner/mail-posture", summary="Execute Explicit Opt-In Active Mail Server Posture Scan")
+def scan_mail_posture(req: MailPostureScanRequest) -> Dict[str, Any]:
+    if not req.target:
+        raise HTTPException(status_code=400, detail="Target host is required.")
+    # allow_local_testing is strictly hardcoded False for public API calls (SSRF safety)
+    report = MailPostureScanner.scan(
+        target=req.target,
+        ports=req.ports,
+        allow_local_testing=False,
+        validate_cert_trust=req.validate_cert_trust,
+    )
+    return report.to_dict()
+
+
+@router.post("/scanner/probe", summary="Execute Active Mail Server Security Probe (Legacy)")
 def probe_mail_server(req: ActiveScanRequest) -> Dict[str, Any]:
     if not req.target_host:
         raise HTTPException(status_code=400, detail="Target host is required.")
