@@ -16,6 +16,7 @@ from ..schemas.forensic import (
     TLSVersion,
     SecurityStrength
 )
+from .pqc_analyzer import PQCAnalyzer, PQCStatus, HNDLStatus
 
 
 class CryptographicRuleEngine:
@@ -181,20 +182,50 @@ class CryptographicRuleEngine:
             # ------------------------------------------------------
             # RULE 6: POST-QUANTUM CRYPTOGRAPHY (PQC) READINESS
             # ------------------------------------------------------
+            pqc_result = PQCAnalyzer.analyze_session(session)
             if ver in [TLSVersion.TLSv1_3, TLSVersion.TLSv1_2]:
-                is_pqc = bool(cipher and cipher.is_post_quantum_safe)
-                if not is_pqc:
+                if pqc_result.pqc_status == PQCStatus.HYBRID_OBSERVED:
+                    findings.append(SecurityFinding(
+                        id="FINDING-PQC-HYBRID-VERIFIED",
+                        title="Post-Quantum Hybrid Key Exchange Verified (ML-KEM)",
+                        severity=FindingSeverity.INFO,
+                        category=FindingCategory.POST_QUANTUM_READINESS,
+                        description=pqc_result.evidence_summary,
+                        evidence_frames=pqc_result.evidence_frames,
+                        recommendation=pqc_result.recommendation
+                    ))
+                elif pqc_result.pqc_status == PQCStatus.PQC_PROTECTED:
+                    findings.append(SecurityFinding(
+                        id="FINDING-PQC-PROTECTED",
+                        title="Post-Quantum Key Exchange Verified",
+                        severity=FindingSeverity.INFO,
+                        category=FindingCategory.POST_QUANTUM_READINESS,
+                        description=pqc_result.evidence_summary,
+                        evidence_frames=pqc_result.evidence_frames,
+                        recommendation=pqc_result.recommendation
+                    ))
+                elif pqc_result.pqc_status == PQCStatus.CLASSICAL_ONLY:
+                    findings.append(SecurityFinding(
+                        id="FINDING-PQC-CLASSICAL-KEX-EXPOSURE",
+                        title="Vulnerable to Harvest Now, Decrypt Later (HNDL)",
+                        severity=FindingSeverity.MEDIUM,
+                        category=FindingCategory.POST_QUANTUM_READINESS,
+                        description=pqc_result.evidence_summary,
+                        evidence_frames=pqc_result.evidence_frames,
+                        recommendation=pqc_result.recommendation
+                    ))
+                elif pqc_result.pqc_status == PQCStatus.ASSESSMENT_INCOMPLETE:
                     findings.append(SecurityFinding(
                         id="FINDING-PQC-CLASSICAL-KEX-EXPOSURE",
                         title="Vulnerable to Harvest Now, Decrypt Later (HNDL)",
                         severity=FindingSeverity.MEDIUM,
                         category=FindingCategory.POST_QUANTUM_READINESS,
                         description=(
-                            "No verified post-quantum key-establishment evidence was observed in the passive capture. "
-                            "The specific classical key-exchange mechanism could not be established with sufficient passive evidence; "
+                            "Post-quantum readiness could not be fully established from observable passive evidence. "
+                            "No verified post-quantum key-establishment evidence was observed in the passive capture; "
                             "therefore HNDL exposure remains an incomplete evidence-bounded assessment."
                         ),
-                        evidence_frames=get_frames(tls.client_hello_frame, tls.server_hello_frame),
+                        evidence_frames=pqc_result.evidence_frames or get_frames(tls.client_hello_frame, tls.server_hello_frame),
                         recommendation="Consider hybrid key establishment combining classical key exchange with ML-KEM, where appropriate. ML-KEM is standardized in NIST FIPS 203."
                     ))
 
@@ -206,6 +237,8 @@ class CryptographicRuleEngine:
         med_cnt = sum(1 for f in findings if f.severity == FindingSeverity.MEDIUM)
         low_cnt = sum(1 for f in findings if f.severity == FindingSeverity.LOW)
         info_cnt = sum(1 for f in findings if f.severity == FindingSeverity.INFO)
+
+        pqc_result = PQCAnalyzer.analyze_session(session)
 
         if session.security_mode == SecurityMode.PLAINTEXT or critical_cnt > 0:
             grade = SecurityGrade.F
@@ -220,8 +253,7 @@ class CryptographicRuleEngine:
             grade = SecurityGrade.B
             rationale = "TLS 1.2 with Forward Secrecy verified. Modern, but upgrade to TLS 1.3 recommended."
         elif tls and tls.negotiated_tls_version == TLSVersion.TLSv1_3:
-            is_pqc = bool(tls.cipher_info and tls.cipher_info.is_post_quantum_safe)
-            if is_pqc:
+            if pqc_result.pqc_ready and tls.has_forward_secrecy is True:
                 grade = SecurityGrade.A_PLUS
                 rationale = "TLS 1.3 negotiated with Forward Secrecy and Post-Quantum hybrid protection."
             else:
@@ -230,12 +262,6 @@ class CryptographicRuleEngine:
         else:
             grade = SecurityGrade.F
             rationale = "Unknown or unverified security posture."
-
-        pqc_summary = (
-            "Classical Key Exchange (Vulnerable to Quantum Decryption)"
-            if not (tls and tls.cipher_info and tls.cipher_info.is_post_quantum_safe)
-            else "Post-Quantum Protected (ML-KEM Hybrid)"
-        )
 
         return SessionSecurityAssessment(
             grade=grade,
@@ -246,6 +272,6 @@ class CryptographicRuleEngine:
             medium_findings_count=med_cnt,
             low_findings_count=low_cnt,
             info_findings_count=info_cnt,
-            post_quantum_ready=bool(tls and tls.cipher_info and tls.cipher_info.is_post_quantum_safe),
-            post_quantum_summary=pqc_summary
+            post_quantum_ready=pqc_result.pqc_ready,
+            post_quantum_summary=pqc_result.evidence_summary
         )
