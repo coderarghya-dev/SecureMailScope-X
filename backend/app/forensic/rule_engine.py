@@ -16,7 +16,9 @@ from ..schemas.forensic import (
     SecurityGrade,
     SecurityMode,
     TLSVersion,
-    SecurityStrength
+    SecurityStrength,
+    AuthProvenanceSource,
+    DNSAuthStatus
 )
 from .pqc_analyzer import PQCAnalyzer, PQCStatus, HNDLStatus
 
@@ -694,10 +696,148 @@ class CryptographicRuleEngine:
                         )
                     ))
 
+            # ------------------------------------------------------
+            # RULE 8: DOMAIN AUTHENTICATION & DNS POLICY (PHASE 7)
+            # ------------------------------------------------------
+            # Only evaluate DNS/Auth findings when active enrichment was performed or passive DNS was observed
+            if session.domain_auth and (session.domain_auth.is_active_enrichment or session.domain_auth.source != AuthProvenanceSource.PASSIVE_CAPTURE):
+                da = session.domain_auth
+                # 8a. SPF checks
+                if da.spf.status in [DNSAuthStatus.ACTIVE_ENRICHMENT, DNSAuthStatus.OBSERVED_PASSIVE, DNSAuthStatus.VALID]:
+                    if da.spf.policy_qualifier == "+all":
+                        findings.append(SecurityFinding(
+                            id="FINDING-SPF-ALLOW-ALL",
+                            title="Insecure SPF Configuration (+all Allows Spoofing)",
+                            severity=FindingSeverity.HIGH,
+                            category=FindingCategory.DOMAIN_AUTHENTICATION,
+                            description="The SPF record publishes '+all', explicitly authorizing any mail server worldwide to forge mail as this domain.",
+                            evidence_frames=[],
+                            recommendation="Remove '+all' and configure strict fail '-all' or softfail '~all'.",
+                            explanation=FindingExplanation(
+                                finding_id="FINDING-SPF-ALLOW-ALL",
+                                rule_id="RULE-SPF-ALLOW-ALL",
+                                why_triggered="SPF record qualifier is '+all'.",
+                                evidence=[
+                                    FindingEvidenceItem(type="DNS_RECORD", frame=None, field="spf_qualifier", observed_value="+all")
+                                ],
+                                confidence_boundary="Active DNS lookup (CURRENT_STATE_ONLY).",
+                                standards_refs=["RFC 7208"]
+                            )
+                        ))
+                    elif da.spf.policy_qualifier == "?all":
+                        findings.append(SecurityFinding(
+                            id="FINDING-SPF-NEUTRAL",
+                            title="SPF Policy Uses Permissive Neutral Rule (?all)",
+                            severity=FindingSeverity.LOW,
+                            category=FindingCategory.DOMAIN_AUTHENTICATION,
+                            description="The SPF record ends with '?all', providing no definitive enforcement against spoofing.",
+                            evidence_frames=[],
+                            recommendation="Transition SPF record to strict fail '-all' or softfail '~all'.",
+                            explanation=FindingExplanation(
+                                finding_id="FINDING-SPF-NEUTRAL",
+                                rule_id="RULE-SPF-NEUTRAL",
+                                why_triggered="SPF record qualifier is '?all'.",
+                                evidence=[
+                                    FindingEvidenceItem(type="DNS_RECORD", frame=None, field="spf_qualifier", observed_value="?all")
+                                ],
+                                confidence_boundary="Active DNS lookup (CURRENT_STATE_ONLY).",
+                                standards_refs=["RFC 7208"]
+                            )
+                        ))
+                    elif not da.spf.spf_policy_present:
+                        findings.append(SecurityFinding(
+                            id="FINDING-SPF-POLICY-ABSENT",
+                            title="Missing SPF Policy Record",
+                            severity=FindingSeverity.LOW,
+                            category=FindingCategory.DOMAIN_AUTHENTICATION,
+                            description=f"Domain {da.domain} does not publish an SPF (v=spf1) TXT record.",
+                            evidence_frames=[],
+                            recommendation="Publish a valid SPF record (e.g. 'v=spf1 include:... -all').",
+                            explanation=FindingExplanation(
+                                finding_id="FINDING-SPF-POLICY-ABSENT",
+                                rule_id="RULE-SPF-ABSENT",
+                                why_triggered="No SPF record found during active DNS lookup.",
+                                evidence=[
+                                    FindingEvidenceItem(type="DNS_RECORD", frame=None, field="spf_record", observed_value="None")
+                                ],
+                                confidence_boundary="Active DNS lookup (CURRENT_STATE_ONLY).",
+                                standards_refs=["RFC 7208"]
+                            )
+                        ))
+
+                # 8b. DMARC checks
+                if da.dmarc.status in [DNSAuthStatus.ACTIVE_ENRICHMENT, DNSAuthStatus.OBSERVED_PASSIVE, DNSAuthStatus.VALID]:
+                    if da.dmarc.policy_p == "none":
+                        findings.append(SecurityFinding(
+                            id="FINDING-DMARC-POLICY-NONE",
+                            title="Weak DMARC Policy (p=none)",
+                            severity=FindingSeverity.LOW,
+                            category=FindingCategory.DOMAIN_AUTHENTICATION,
+                            description=f"Domain {da.domain} publishes DMARC policy 'p=none' (monitoring only). Spoofed messages will not be rejected or quarantined.",
+                            evidence_frames=[],
+                            recommendation="Upgrade DMARC policy to 'p=quarantine' or 'p=reject'.",
+                            explanation=FindingExplanation(
+                                finding_id="FINDING-DMARC-POLICY-NONE",
+                                rule_id="RULE-DMARC-NONE",
+                                why_triggered="DMARC policy p=none.",
+                                evidence=[
+                                    FindingEvidenceItem(type="DNS_RECORD", frame=None, field="dmarc_p", observed_value="none")
+                                ],
+                                confidence_boundary="Active DNS lookup (CURRENT_STATE_ONLY).",
+                                standards_refs=["RFC 7489"]
+                            )
+                        ))
+                    elif not da.dmarc.raw_record:
+                        findings.append(SecurityFinding(
+                            id="FINDING-DMARC-POLICY-ABSENT",
+                            title="Missing DMARC Policy Record",
+                            severity=FindingSeverity.MEDIUM,
+                            category=FindingCategory.DOMAIN_AUTHENTICATION,
+                            description=f"Domain {da.domain} does not publish a _dmarc TXT record.",
+                            evidence_frames=[],
+                            recommendation="Publish a DMARC policy record at _dmarc.<domain>.",
+                            explanation=FindingExplanation(
+                                finding_id="FINDING-DMARC-POLICY-ABSENT",
+                                rule_id="RULE-DMARC-ABSENT",
+                                why_triggered="No DMARC record found during active DNS lookup.",
+                                evidence=[
+                                    FindingEvidenceItem(type="DNS_RECORD", frame=None, field="dmarc_record", observed_value="None")
+                                ],
+                                confidence_boundary="Active DNS lookup (CURRENT_STATE_ONLY).",
+                                standards_refs=["RFC 7489"]
+                            )
+                        ))
+
+                # 8c. MTA-STS mode
+                if da.mta_sts.policy_mode == "testing":
+                    findings.append(SecurityFinding(
+                        id="FINDING-MTA-STS-TESTING",
+                        title="MTA-STS Policy in Testing Mode",
+                        severity=FindingSeverity.INFO,
+                        category=FindingCategory.DOMAIN_AUTHENTICATION,
+                        description="MTA-STS policy is in testing mode and does not enforce TLS encryption.",
+                        evidence_frames=[],
+                        recommendation="Transition MTA-STS mode to 'enforce'.",
+                        explanation=FindingExplanation(
+                            finding_id="FINDING-MTA-STS-TESTING",
+                            rule_id="RULE-MTA-STS-TESTING",
+                            why_triggered="MTA-STS mode is 'testing'.",
+                            evidence=[
+                                FindingEvidenceItem(type="DNS_RECORD", frame=None, field="mta_sts_mode", observed_value="testing")
+                            ],
+                            confidence_boundary="Active DNS lookup (CURRENT_STATE_ONLY).",
+                            standards_refs=["RFC 8461"]
+                        )
+                    ))
+
         # ----------------------------------------------------------
         # OVERALL SECURITY GRADE CALCULATION
         # ----------------------------------------------------------
-        critical_cnt = sum(1 for f in findings if f.severity == FindingSeverity.CRITICAL)
+        # Critical findings from capture-time evidence determine historical SecurityGrade
+        critical_cnt = sum(
+            1 for f in findings
+            if f.severity == FindingSeverity.CRITICAL and f.category != FindingCategory.DOMAIN_AUTHENTICATION
+        )
         high_cnt = sum(1 for f in findings if f.severity == FindingSeverity.HIGH)
         med_cnt = sum(1 for f in findings if f.severity == FindingSeverity.MEDIUM)
         low_cnt = sum(1 for f in findings if f.severity == FindingSeverity.LOW)

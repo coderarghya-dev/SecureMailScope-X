@@ -6,11 +6,17 @@ and only executes active network DNS lookups when explicitly requested by an ana
 """
 
 from datetime import datetime, timezone
-import json
-import urllib.request
-import urllib.error
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
+
+from app.schemas.forensic import (
+    AuthProvenanceSource,
+    HistoricalApplicability,
+    DNSAuthStatus,
+    DomainAuthenticationAssessment
+)
+from app.dns.dns_auth_analyzer import DNSAuthAnalyzer
+from app.dns.dns_resolver import DNSResolver
 
 
 @dataclass
@@ -18,18 +24,19 @@ class DomainAuthAssessment:
     domain: str
     query_timestamp_iso: str
     is_active_lookup: bool
-    data_source: str  # e.g., "Active DNS Lookup (Cloudflare DoH / 1.1.1.1)" or "Offline Static Record"
+    data_source: str
     spf_record: Optional[str] = None
-    spf_policy: Optional[str] = None  # PASS_RESTRICTIVE (-all), SOFTFAIL (~all), NEUTRAL (?all), INSECURE (+all), MISSING
+    spf_policy: Optional[str] = None
     dmarc_record: Optional[str] = None
-    dmarc_policy: Optional[str] = None  # reject, quarantine, none, missing
+    dmarc_policy: Optional[str] = None
     dmarc_pct: Optional[int] = 100
     mta_sts_record: Optional[str] = None
-    mta_sts_mode: Optional[str] = None  # enforce, testing, none, missing
+    mta_sts_mode: Optional[str] = None
     bimi_record: Optional[str] = None
     dane_tlsa_record: Optional[str] = None
     findings: List[Dict[str, Any]] = field(default_factory=list)
     overall_auth_posture: str = "UNKNOWN"
+    assessment_model: Optional[DomainAuthenticationAssessment] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -66,167 +73,176 @@ class EmailAuthAnalyzer:
         is_active: bool = False,
         data_source: str = "Offline Record Evaluation",
     ) -> DomainAuthAssessment:
-        now_iso = datetime.now(timezone.utc).isoformat()
+        assessment = DNSAuthAnalyzer.evaluate_provided_records(
+            domain=domain,
+            txt_records=txt_records,
+            dmarc_txt=dmarc_txt,
+            mta_sts_txt=mta_sts_txt,
+            bimi_txt=bimi_txt,
+            tlsa_records=tlsa_records
+        )
+        if is_active:
+            assessment.source = AuthProvenanceSource.ACTIVE_DNS_ENRICHMENT
+            assessment.historical_applicability = HistoricalApplicability.CURRENT_STATE_ONLY
+            assessment.is_active_enrichment = True
+
         findings: List[Dict[str, Any]] = []
-
-        # 1. Parse SPF
-        spf_rec = None
-        for txt in txt_records:
-            if txt.strip().startswith("v=spf1"):
-                spf_rec = txt.strip()
-                break
-
-        spf_policy = "MISSING"
-        if spf_rec:
-            if "-all" in spf_rec:
-                spf_policy = "PASS_RESTRICTIVE (-all)"
-            elif "~all" in spf_rec:
-                spf_policy = "SOFTFAIL (~all)"
-            elif "?all" in spf_rec:
-                spf_policy = "NEUTRAL (?all)"
-                findings.append({
-                    "id": "FINDING-SPF-NEUTRAL",
-                    "title": "SPF Policy Uses Permissive Neutral Rule (?all)",
-                    "severity": "MEDIUM",
-                    "description": "The SPF record ends with '?all', which provides no enforcement against spoofing.",
-                    "recommendation": "Transition SPF record to strict fail '-all' or softfail '~all'."
-                })
-            elif "+all" in spf_rec:
-                spf_policy = "INSECURE (+all)"
-                findings.append({
-                    "id": "FINDING-SPF-ALLOW-ALL",
-                    "title": "Insecure SPF Configuration: +all Allows Spoofing",
-                    "severity": "CRITICAL",
-                    "description": "The SPF record ends with '+all', explicitly authorizing any mail server in the world to send as this domain.",
-                    "recommendation": "Remove '+all' immediately and configure '-all'."
-                })
-        else:
+        if assessment.spf.policy_qualifier == "+all":
+            findings.append({
+                "id": "FINDING-SPF-ALLOW-ALL",
+                "title": "Insecure SPF Configuration: +all Allows Spoofing",
+                "severity": "CRITICAL",
+                "description": "The SPF record ends with '+all', explicitly authorizing any mail server to send as this domain.",
+                "recommendation": "Remove '+all' immediately and configure '-all'."
+            })
+        elif assessment.spf.policy_qualifier == "?all":
+            findings.append({
+                "id": "FINDING-SPF-NEUTRAL",
+                "title": "SPF Policy Uses Permissive Neutral Rule (?all)",
+                "severity": "MEDIUM",
+                "description": "The SPF record ends with '?all', which provides no enforcement against spoofing.",
+                "recommendation": "Transition SPF record to strict fail '-all' or softfail '~all'."
+            })
+        elif not assessment.spf.spf_policy_present:
             findings.append({
                 "id": "FINDING-SPF-MISSING",
                 "title": "Missing SPF Record",
                 "severity": "HIGH",
-                "description": f"Domain {domain} does not publish an SPF record, allowing unauthorized senders to forge emails.",
-                "recommendation": "Publish a valid TXT SPF record (e.g. 'v=spf1 include:... -all')."
+                "description": f"Domain {domain} does not publish an SPF record.",
+                "recommendation": "Publish a valid TXT SPF record."
             })
 
-        # 2. Parse DMARC
-        dmarc_policy = "MISSING"
-        dmarc_pct = 100
-        if dmarc_txt and dmarc_txt.startswith("v=DMARC1"):
-            parts = [p.strip() for p in dmarc_txt.split(";")]
-            for part in parts:
-                if part.startswith("p="):
-                    dmarc_policy = part.split("=")[1].strip().lower()
-                elif part.startswith("pct="):
-                    try:
-                        dmarc_pct = int(part.split("=")[1].strip())
-                    except ValueError:
-                        pass
-
-            if dmarc_policy == "none":
-                findings.append({
-                    "id": "FINDING-DMARC-POLICY-NONE",
-                    "title": "Weak DMARC Policy (p=none)",
-                    "severity": "MEDIUM",
-                    "description": "DMARC policy is set to 'p=none' (monitoring only). Unauthenticated spoofed emails will not be rejected or quarantined.",
-                    "recommendation": "Upgrade DMARC policy to 'p=quarantine' or 'p=reject'."
-                })
-            elif dmarc_policy in ["quarantine", "reject"] and dmarc_pct < 100:
-                findings.append({
-                    "id": "FINDING-DMARC-PARTIAL-PCT",
-                    "title": f"DMARC Enforcement Incomplete (pct={dmarc_pct})",
-                    "severity": "LOW",
-                    "description": f"DMARC policy applies to only {dmarc_pct}% of incoming mail.",
-                    "recommendation": "Increase DMARC percentage to 'pct=100' for comprehensive enforcement."
-                })
-        else:
+        if assessment.dmarc.policy_p == "none":
+            findings.append({
+                "id": "FINDING-DMARC-POLICY-NONE",
+                "title": "Weak DMARC Policy (p=none)",
+                "severity": "MEDIUM",
+                "description": "DMARC policy is set to 'p=none' (monitoring only).",
+                "recommendation": "Upgrade DMARC policy to 'p=quarantine' or 'p=reject'."
+            })
+        elif not assessment.dmarc.raw_record:
             findings.append({
                 "id": "FINDING-DMARC-MISSING",
                 "title": "Missing DMARC Policy Record",
                 "severity": "HIGH",
-                "description": f"Domain {domain} has no _dmarc TXT record. Receivers cannot verify email authenticity.",
-                "recommendation": "Publish a DMARC record at _dmarc.{domain} with at least 'v=DMARC1; p=quarantine'."
+                "description": f"Domain {domain} has no _dmarc TXT record.",
+                "recommendation": "Publish a DMARC record at _dmarc.{domain}."
             })
 
-        # 3. Parse MTA-STS
-        mta_sts_mode = "MISSING"
-        if mta_sts_txt and mta_sts_txt.startswith("v=STSv1"):
-            mta_sts_mode = "PRESENT"
-            if "mode: enforce" in mta_sts_txt or "mode=enforce" in mta_sts_txt:
-                mta_sts_mode = "ENFORCE"
-            elif "mode: testing" in mta_sts_txt or "mode=testing" in mta_sts_txt:
-                mta_sts_mode = "TESTING"
-                findings.append({
-                    "id": "FINDING-MTA-STS-TESTING",
-                    "title": "MTA-STS Policy in Testing Mode",
-                    "severity": "LOW",
-                    "description": "MTA-STS policy is configured in testing mode and does not enforce TLS encryption.",
-                    "recommendation": "Change MTA-STS policy mode to 'enforce'."
-                })
-
-        # 4. Overall Posture
-        if dmarc_policy == "reject" and spf_policy == "PASS_RESTRICTIVE (-all)":
-            overall = "ROBUST"
-        elif dmarc_policy in ["reject", "quarantine"]:
-            overall = "MODERATE"
-        elif dmarc_policy == "none" or spf_rec is not None:
-            overall = "BASIC"
+        if assessment.spf.policy_qualifier == "-all":
+            spf_policy_str = "PASS_RESTRICTIVE (-all)"
+        elif assessment.spf.policy_qualifier == "~all":
+            spf_policy_str = "SOFTFAIL (~all)"
+        elif assessment.spf.policy_qualifier == "?all":
+            spf_policy_str = "NEUTRAL (?all)"
+        elif assessment.spf.policy_qualifier == "+all":
+            spf_policy_str = "INSECURE (+all)"
+        elif not assessment.spf.spf_policy_present:
+            spf_policy_str = "MISSING"
         else:
-            overall = "DEFICIENT"
+            spf_policy_str = "PRESENT"
+
+        dmarc_policy_str = assessment.dmarc.policy_p if assessment.dmarc.raw_record else "MISSING"
+
+        if mta_sts_txt and ("mode=enforce" in mta_sts_txt.lower() or "mode: enforce" in mta_sts_txt.lower()):
+            mta_sts_mode_str = "ENFORCE"
+        elif mta_sts_txt and ("mode=testing" in mta_sts_txt.lower() or "mode: testing" in mta_sts_txt.lower()):
+            mta_sts_mode_str = "TESTING"
+        elif assessment.mta_sts.policy_mode:
+            mta_sts_mode_str = assessment.mta_sts.policy_mode.upper()
+        elif assessment.mta_sts.raw_record:
+            mta_sts_mode_str = "PRESENT"
+        else:
+            mta_sts_mode_str = "MISSING"
 
         return DomainAuthAssessment(
             domain=domain,
-            query_timestamp_iso=now_iso,
+            query_timestamp_iso=assessment.queried_at_utc or datetime.now(timezone.utc).isoformat(),
             is_active_lookup=is_active,
             data_source=data_source,
-            spf_record=spf_rec,
-            spf_policy=spf_policy,
-            dmarc_record=dmarc_txt,
-            dmarc_policy=dmarc_policy,
-            dmarc_pct=dmarc_pct,
-            mta_sts_record=mta_sts_txt,
-            mta_sts_mode=mta_sts_mode,
-            bimi_record=bimi_txt,
-            dane_tlsa_record="; ".join(tlsa_records) if tlsa_records else None,
+            spf_record=assessment.spf.raw_record,
+            spf_policy=spf_policy_str,
+            dmarc_record=assessment.dmarc.raw_record,
+            dmarc_policy=dmarc_policy_str,
+            dmarc_pct=assessment.dmarc.percentage_pct,
+            mta_sts_record=assessment.mta_sts.raw_record,
+            mta_sts_mode=mta_sts_mode_str,
+            bimi_record=assessment.bimi.raw_record,
+            dane_tlsa_record="; ".join(assessment.dane.tlsa_records) if assessment.dane.tlsa_records else None,
             findings=findings,
-            overall_auth_posture=overall,
+            overall_auth_posture=assessment.overall_auth_posture,
+            assessment_model=assessment
         )
 
     @classmethod
     def query_active_domain(cls, domain: str) -> DomainAuthAssessment:
         """Performs explicit active DNS-over-HTTPS query for domain auth records."""
         clean_domain = domain.strip().lower()
-        
-        def doh_query_txt(name: str) -> List[str]:
-            url = f"https://cloudflare-dns.com/dns-query?name={name}&type=TXT"
-            req = urllib.request.Request(url, headers={"Accept": "application/dns-json"})
-            try:
-                with urllib.request.urlopen(req, timeout=5) as response:
-                    data = json.loads(response.read().decode())
-                    answers = data.get("Answer", [])
-                    records = []
-                    for ans in answers:
-                        if ans.get("type") == 16:  # TXT
-                            records.append(ans.get("data", "").strip('"'))
-                    return records
-            except Exception:
-                return []
+        resolver = DNSResolver(timeout_sec=3.0)
+        assessment = DNSAuthAnalyzer.evaluate_active_domain(clean_domain, resolver=resolver)
 
-        txt_records = doh_query_txt(clean_domain)
-        dmarc_records = doh_query_txt(f"_dmarc.{clean_domain}")
-        mta_sts_records = doh_query_txt(f"_mta-sts.{clean_domain}")
-        bimi_records = doh_query_txt(f"default._bimi.{clean_domain}")
+        findings: List[Dict[str, Any]] = []
+        if assessment.spf.policy_qualifier == "+all":
+            findings.append({
+                "id": "FINDING-SPF-ALLOW-ALL",
+                "title": "Insecure SPF Configuration: +all Allows Spoofing",
+                "severity": "CRITICAL",
+                "description": "The SPF record ends with '+all', explicitly authorizing any mail server to send as this domain.",
+                "recommendation": "Remove '+all' immediately and configure '-all'."
+            })
+        elif assessment.spf.policy_qualifier == "?all":
+            findings.append({
+                "id": "FINDING-SPF-NEUTRAL",
+                "title": "SPF Policy Uses Permissive Neutral Rule (?all)",
+                "severity": "MEDIUM",
+                "description": "The SPF record ends with '?all', which provides no enforcement against spoofing.",
+                "recommendation": "Transition SPF record to strict fail '-all' or softfail '~all'."
+            })
+        elif not assessment.spf.spf_policy_present:
+            findings.append({
+                "id": "FINDING-SPF-MISSING",
+                "title": "Missing SPF Record",
+                "severity": "HIGH",
+                "description": f"Domain {clean_domain} does not publish an SPF record.",
+                "recommendation": "Publish a valid TXT SPF record."
+            })
 
-        dmarc_txt = dmarc_records[0] if dmarc_records else None
-        mta_sts_txt = mta_sts_records[0] if mta_sts_records else None
-        bimi_txt = bimi_records[0] if bimi_records else None
+        if assessment.dmarc.policy_p == "none":
+            findings.append({
+                "id": "FINDING-DMARC-POLICY-NONE",
+                "title": "Weak DMARC Policy (p=none)",
+                "severity": "MEDIUM",
+                "description": "DMARC policy is set to 'p=none' (monitoring only).",
+                "recommendation": "Upgrade DMARC policy to 'p=quarantine' or 'p=reject'."
+            })
+        elif not assessment.dmarc.raw_record:
+            findings.append({
+                "id": "FINDING-DMARC-MISSING",
+                "title": "Missing DMARC Policy Record",
+                "severity": "HIGH",
+                "description": f"Domain {clean_domain} has no _dmarc TXT record.",
+                "recommendation": "Publish a DMARC record at _dmarc.{clean_domain}."
+            })
 
-        return cls.analyze_records(
+        spf_policy_str = assessment.spf.policy_qualifier or ("PRESENT" if assessment.spf.spf_policy_present else "MISSING")
+        dmarc_policy_str = assessment.dmarc.policy_p or "MISSING"
+        mta_sts_mode_str = assessment.mta_sts.policy_mode or ("PRESENT" if assessment.mta_sts.raw_record else "MISSING")
+
+        return DomainAuthAssessment(
             domain=clean_domain,
-            txt_records=txt_records,
-            dmarc_txt=dmarc_txt,
-            mta_sts_txt=mta_sts_txt,
-            bimi_txt=bimi_txt,
-            is_active=True,
-            data_source="Active Cloudflare DNS-over-HTTPS (1.1.1.1)",
+            query_timestamp_iso=assessment.queried_at_utc or datetime.now(timezone.utc).isoformat(),
+            is_active_lookup=True,
+            data_source="Active DNS-over-HTTPS Lookup (1.1.1.1)",
+            spf_record=assessment.spf.raw_record,
+            spf_policy=spf_policy_str,
+            dmarc_record=assessment.dmarc.raw_record,
+            dmarc_policy=dmarc_policy_str,
+            dmarc_pct=assessment.dmarc.percentage_pct,
+            mta_sts_record=assessment.mta_sts.raw_record,
+            mta_sts_mode=mta_sts_mode_str,
+            bimi_record=assessment.bimi.raw_record,
+            dane_tlsa_record="; ".join(assessment.dane.tlsa_records) if assessment.dane.tlsa_records else None,
+            findings=findings,
+            overall_auth_posture=assessment.overall_auth_posture,
+            assessment_model=assessment
         )

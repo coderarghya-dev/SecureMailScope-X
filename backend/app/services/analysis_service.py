@@ -43,7 +43,14 @@ from app.schemas.api import (
     MLTriageDTO,
     CorrelatedIncidentDTO,
     MultiSessionSummaryDTO,
-    CertificateDetailsDTO
+    CertificateDetailsDTO,
+    SPFRecordDetailsDTO,
+    DKIMRecordDetailsDTO,
+    DMARCRecordDetailsDTO,
+    MTASTSRecordDetailsDTO,
+    BIMIRecordDetailsDTO,
+    DANERecordDetailsDTO,
+    DomainAuthenticationAssessmentDTO
 )
 from app.ml.risk_classifier import MLRiskClassifier
 
@@ -372,6 +379,108 @@ class AnalysisService:
             except Exception:
                 ml_triage_dto = None
 
+            # Domain Authentication Assessment (Phase 7)
+            if not s.domain_auth:
+                from app.dns.dns_auth_analyzer import DNSAuthAnalyzer
+                s.domain_auth = DNSAuthAnalyzer.evaluate_passive_session(s)
+
+            domain_auth_dto = None
+            if s.domain_auth:
+                da = s.domain_auth
+                spf_dto = SPFRecordDetailsDTO(
+                    status=da.spf.status.value if hasattr(da.spf.status, "value") else str(da.spf.status),
+                    raw_record=da.spf.raw_record,
+                    version=da.spf.version,
+                    policy_qualifier=da.spf.policy_qualifier,
+                    mechanisms=da.spf.mechanisms,
+                    include_domains=da.spf.include_domains,
+                    redirect_domain=da.spf.redirect_domain,
+                    lookup_count=da.spf.lookup_count,
+                    lookup_limit_exceeded=da.spf.lookup_limit_exceeded,
+                    syntax_valid=da.spf.syntax_valid,
+                    syntax_error=da.spf.syntax_error,
+                    spf_policy_present=da.spf.spf_policy_present,
+                    spf_message_result=da.spf.spf_message_result,
+                    analysis_limitations=da.spf.analysis_limitations
+                )
+                dkim_dto = None
+                if da.dkim:
+                    dkim_dto = DKIMRecordDetailsDTO(
+                        status=da.dkim.status.value if hasattr(da.dkim.status, "value") else str(da.dkim.status),
+                        selector=da.dkim.selector,
+                        signing_domain=da.dkim.signing_domain,
+                        algorithm=da.dkim.algorithm,
+                        canonicalization=da.dkim.canonicalization,
+                        body_hash_present=da.dkim.body_hash_present,
+                        body_hash=da.dkim.body_hash,
+                        public_key_record=da.dkim.public_key_record,
+                        public_key_type=da.dkim.public_key_type,
+                        public_key_bits=da.dkim.public_key_bits,
+                        dkim_verification_status=da.dkim.dkim_verification_status,
+                        signature_present=da.dkim.signature_present,
+                        analysis_limitations=da.dkim.analysis_limitations
+                    )
+                dmarc_dto = DMARCRecordDetailsDTO(
+                    status=da.dmarc.status.value if hasattr(da.dmarc.status, "value") else str(da.dmarc.status),
+                    raw_record=da.dmarc.raw_record,
+                    policy_p=da.dmarc.policy_p,
+                    subdomain_policy_sp=da.dmarc.subdomain_policy_sp,
+                    percentage_pct=da.dmarc.percentage_pct,
+                    rua_uris=da.dmarc.rua_uris,
+                    ruf_uris=da.dmarc.ruf_uris,
+                    adkim_mode=da.dmarc.adkim_mode,
+                    aspf_mode=da.dmarc.aspf_mode,
+                    syntax_valid=da.dmarc.syntax_valid,
+                    alignment_evaluated=da.dmarc.alignment_evaluated,
+                    analysis_limitations=da.dmarc.analysis_limitations
+                )
+                mta_sts_dto = MTASTSRecordDetailsDTO(
+                    status=da.mta_sts.status.value if hasattr(da.mta_sts.status, "value") else str(da.mta_sts.status),
+                    raw_record=da.mta_sts.raw_record,
+                    version=da.mta_sts.version,
+                    id_tag=da.mta_sts.id_tag,
+                    policy_mode=da.mta_sts.policy_mode,
+                    max_age_seconds=da.mta_sts.max_age_seconds,
+                    mx_patterns=da.mta_sts.mx_patterns,
+                    https_policy_fetched=da.mta_sts.https_policy_fetched,
+                    https_policy_url=da.mta_sts.https_policy_url,
+                    https_fetch_timestamp=da.mta_sts.https_fetch_timestamp,
+                    analysis_limitations=da.mta_sts.analysis_limitations
+                )
+                bimi_dto = BIMIRecordDetailsDTO(
+                    status=da.bimi.status.value if hasattr(da.bimi.status, "value") else str(da.bimi.status),
+                    raw_record=da.bimi.raw_record,
+                    version=da.bimi.version,
+                    location_svg=da.bimi.location_svg,
+                    authority_vmc=da.bimi.authority_vmc,
+                    vmc_validation_status=da.bimi.vmc_validation_status,
+                    brand_validation_claimed=da.bimi.brand_validation_claimed,
+                    analysis_limitations=da.bimi.analysis_limitations
+                )
+                dane_dto = DANERecordDetailsDTO(
+                    status=da.dane.status.value if hasattr(da.dane.status, "value") else str(da.dane.status),
+                    tlsa_records=da.dane.tlsa_records,
+                    parsed_usages=da.dane.parsed_usages,
+                    dnssec_status=da.dane.dnssec_status,
+                    analysis_limitations=da.dane.analysis_limitations
+                )
+                domain_auth_dto = DomainAuthenticationAssessmentDTO(
+                    domain=da.domain,
+                    source=da.source.value if hasattr(da.source, "value") else str(da.source),
+                    historical_applicability=da.historical_applicability.value if hasattr(da.historical_applicability, "value") else str(da.historical_applicability),
+                    queried_at_utc=da.queried_at_utc,
+                    is_active_enrichment=da.is_active_enrichment,
+                    spf=spf_dto,
+                    dkim=dkim_dto,
+                    dmarc=dmarc_dto,
+                    mta_sts=mta_sts_dto,
+                    bimi=bimi_dto,
+                    dane=dane_dto,
+                    overall_auth_posture=da.overall_auth_posture,
+                    authoritative_boundary_disclaimer=da.authoritative_boundary_disclaimer,
+                    limitations=da.limitations
+                )
+
             session_dtos.append(SessionDetailDTO(
                 session_id=s.session_id,
                 stream_index=s.stream_index,
@@ -392,7 +501,8 @@ class AnalysisService:
                 security_assessment=sec_dto,
                 evidence_frames=evidence_frames_dtos,
                 ml_triage=ml_triage_dto,
-                certificate_details=cert_dto
+                certificate_details=cert_dto,
+                domain_auth=domain_auth_dto
             ))
 
         primary_conf_score = session_dtos[0].evidence_confidence.score if session_dtos else 95

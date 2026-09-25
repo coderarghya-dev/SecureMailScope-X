@@ -227,6 +227,114 @@ class MLTriageDTO(BaseModel):
     top_protective_factors: List[MLFeatureContributionDTO] = []
 
 
+# ---------------------------------------------------------------------------
+# Domain Authentication & DNS DTOs (Phase 7)
+# ---------------------------------------------------------------------------
+class SPFRecordDetailsDTO(BaseModel):
+    status: str = "NOT_OBSERVED"
+    raw_record: Optional[str] = None
+    version: Optional[str] = None
+    policy_qualifier: Optional[str] = None
+    mechanisms: List[str] = []
+    include_domains: List[str] = []
+    redirect_domain: Optional[str] = None
+    lookup_count: int = 0
+    lookup_count_status: str = "NOT_EVALUATED"
+    lookup_limit_exceeded: Optional[bool] = None
+    lookup_limit_risk: Optional[str] = None
+    syntax_valid: bool = True
+    syntax_error: Optional[str] = None
+    spf_policy_present: bool = False
+    spf_message_result: Optional[str] = None
+    analysis_limitations: List[str] = []
+
+
+class DKIMRecordDetailsDTO(BaseModel):
+    status: str = "NOT_OBSERVED"
+    selector: Optional[str] = None
+    signing_domain: Optional[str] = None
+    algorithm: Optional[str] = None
+    canonicalization: Optional[str] = None
+    body_hash_present: bool = False
+    body_hash: Optional[str] = None
+    public_key_record: Optional[str] = None
+    public_key_type: Optional[str] = None
+    public_key_bits: Optional[int] = None
+    dkim_verification_status: str = "NOT_VERIFIED"
+    signature_present: bool = False
+    analysis_limitations: List[str] = []
+
+
+class DMARCRecordDetailsDTO(BaseModel):
+    status: str = "NOT_OBSERVED"
+    raw_record: Optional[str] = None
+    policy_p: Optional[str] = None
+    subdomain_policy_sp: Optional[str] = None
+    percentage_pct: Optional[int] = 100
+    rua_uris: List[str] = []
+    ruf_uris: List[str] = []
+    adkim_mode: str = "r"
+    aspf_mode: str = "r"
+    syntax_valid: bool = True
+    alignment_evaluated: bool = False
+    message_dmarc_result: str = "NOT_EVALUATED"
+    analysis_limitations: List[str] = []
+
+
+class MTASTSRecordDetailsDTO(BaseModel):
+    status: str = "NOT_OBSERVED"
+    raw_record: Optional[str] = None
+    version: Optional[str] = None
+    id_tag: Optional[str] = None
+    policy_mode: Optional[str] = None
+    max_age_seconds: Optional[int] = None
+    mx_patterns: List[str] = []
+    https_policy_fetched: bool = False
+    https_policy_url: Optional[str] = None
+    https_fetch_timestamp: Optional[str] = None
+    analysis_limitations: List[str] = []
+
+
+class BIMIRecordDetailsDTO(BaseModel):
+    status: str = "NOT_OBSERVED"
+    raw_record: Optional[str] = None
+    version: Optional[str] = None
+    location_svg: Optional[str] = None
+    authority_vmc: Optional[str] = None
+    vmc_validation_status: str = "NOT_VALIDATED"
+    brand_validation_claimed: bool = False
+    analysis_limitations: List[str] = []
+
+
+class DANERecordDetailsDTO(BaseModel):
+    status: str = "NOT_OBSERVED"
+    tlsa_records: List[str] = []
+    parsed_usages: List[int] = []
+    dnssec_status: str = "NOT_VALIDATED"
+    analysis_limitations: List[str] = []
+
+
+class DomainAuthenticationAssessmentDTO(BaseModel):
+    domain: str
+    source: str = "PASSIVE_CAPTURE"
+    historical_applicability: str = "UNKNOWN"
+    queried_at_utc: Optional[str] = None
+    resolver_provider: Optional[str] = None
+    resolver_endpoint: Optional[str] = None
+    is_active_enrichment: bool = False
+    spf: SPFRecordDetailsDTO = SPFRecordDetailsDTO()
+    dkim: Optional[DKIMRecordDetailsDTO] = None
+    dmarc: DMARCRecordDetailsDTO = DMARCRecordDetailsDTO()
+    mta_sts: MTASTSRecordDetailsDTO = MTASTSRecordDetailsDTO()
+    bimi: BIMIRecordDetailsDTO = BIMIRecordDetailsDTO()
+    dane: DANERecordDetailsDTO = DANERecordDetailsDTO()
+    overall_auth_posture: str = "NOT_EVALUATED"
+    authoritative_boundary_disclaimer: str = (
+        "Active DNS enrichment results reflect current live DNS state and do NOT alter or represent historical capture evidence."
+    )
+    limitations: List[str] = []
+
+
 class SessionDetailDTO(BaseModel):
     session_id: str
     stream_index: int
@@ -248,6 +356,7 @@ class SessionDetailDTO(BaseModel):
     evidence_frames: List[EvidenceFrameDTO] = []
     ml_triage: Optional[MLTriageDTO] = None
     certificate_details: Optional[CertificateDetailsDTO] = None
+    domain_auth: Optional[DomainAuthenticationAssessmentDTO] = None
 
 
 # ---------------------------------------------------------------------------

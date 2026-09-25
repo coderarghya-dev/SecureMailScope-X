@@ -18,12 +18,14 @@ class DNSAuthRequest(BaseModel):
     dmarc_record: Optional[str] = None
     mta_sts_record: Optional[str] = None
     bimi_record: Optional[str] = None
+    tlsa_records: Optional[List[str]] = None
     active_lookup: bool = False
+    fetch_mta_sts_https: bool = False
 
 
 @router.post(
     "/enrichment/dns-auth",
-    summary="Evaluate Domain Email Authentication (SPF, DMARC, MTA-STS, BIMI)",
+    summary="Evaluate Domain Email Authentication (SPF, DMARC, MTA-STS, BIMI, DANE)",
     description="Analyzes email authentication records. Performs active DoH lookup ONLY if active_lookup is True."
 )
 def analyze_dns_auth(req: DNSAuthRequest) -> Dict[str, Any]:
@@ -39,6 +41,7 @@ def analyze_dns_auth(req: DNSAuthRequest) -> Dict[str, Any]:
             dmarc_txt=req.dmarc_record,
             mta_sts_txt=req.mta_sts_record,
             bimi_txt=req.bimi_record,
+            tlsa_records=req.tlsa_records,
             is_active=False,
             data_source="Offline Provided DNS Records",
         )
