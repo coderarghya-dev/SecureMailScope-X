@@ -24,6 +24,7 @@ from app.schemas.forensic import EmailSession
 from app.services.custody_service import CustodyService
 from app.db.repository import ForensicRepository
 from app.forensic.incident_correlator import IncidentCorrelator
+from app.schemas.identity import ActorContext
 from app.schemas.api import (
     AnalysisDetailResponse,
     AnalysisSummaryResponse,
@@ -94,7 +95,12 @@ class AnalysisService:
         return True, ""
 
     @classmethod
-    def process_pcap_bytes(cls, original_filename: str, content: bytes) -> AnalysisDetailResponse:
+    def process_pcap_bytes(
+        cls,
+        original_filename: str,
+        content: bytes,
+        actor: Optional[ActorContext] = None,
+    ) -> AnalysisDetailResponse:
         """
         Saves bytes securely to temporary file, executes passive forensics,
         and cleans up temporary file immediately.
@@ -133,7 +139,7 @@ class AnalysisService:
             cls._cache[analysis_id] = (report, sessions)
 
             # Persist to database
-            cls._persist_analysis(report, sessions)
+            cls._persist_analysis(report, sessions, actor=actor)
 
             # Record Analysis Completion & Seal Manifest
             CustodyService.record_analysis_completion(analysis_id, report)
@@ -568,7 +574,12 @@ class AnalysisService:
         return report, sessions
 
     @classmethod
-    def _persist_analysis(cls, report: AnalysisDetailResponse, sessions: List[EmailSession]):
+    def _persist_analysis(
+        cls,
+        report: AnalysisDetailResponse,
+        sessions: List[EmailSession],
+        actor: Optional[ActorContext] = None,
+    ):
         """Helper to persist analysis to database."""
         try:
             raw_packets_map = {}
@@ -595,7 +606,8 @@ class AnalysisService:
             ForensicRepository.save_analysis(
                 analysis=report,
                 raw_sessions=sessions,
-                raw_packets_by_session=raw_packets_map
+                raw_packets_by_session=raw_packets_map,
+                actor=actor,
             )
         except Exception:
             pass  # Non-fatal if DB is in-memory or locked

@@ -10,6 +10,7 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 from app.db.database import get_db_connection
 from app.db.repository import ForensicRepository
+from app.schemas.identity import ActorContext
 
 
 @dataclass
@@ -64,9 +65,10 @@ class CaseService:
         cls,
         title: str,
         description: str = "",
-        analyst_id: str = "analyst-01",
-        analyst_name: str = "Default Local Analyst",
+        analyst_id: Optional[str] = None,
+        analyst_name: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        actor: Optional[ActorContext] = None,
         db_path: Optional[str] = None,
     ) -> ForensicCase:
         case_id = f"CASE-{uuid.uuid4().hex[:8].upper()}"
@@ -77,6 +79,7 @@ class CaseService:
             analyst_id=analyst_id,
             analyst_name=analyst_name,
             tags=tags or ["Email-Forensics"],
+            actor=actor,
             db_path=db_path,
         )
         return ForensicCase(
@@ -110,19 +113,26 @@ class CaseService:
         cls,
         case_id: str,
         analysis_id: str,
-        analyst_id: str = "analyst-01",
+        analyst_id: Optional[str] = None,
+        actor: Optional[ActorContext] = None,
         db_path: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Attaches an analysis to a case."""
-        success = ForensicRepository.attach_analysis_to_case(case_id, analysis_id, analyst_id=analyst_id, db_path=db_path)
+        success = ForensicRepository.attach_analysis_to_case(case_id, analysis_id, analyst_id=analyst_id, actor=actor, db_path=db_path)
         if not success:
             return None
         return ForensicRepository.get_case(case_id, db_path=db_path)
 
     @classmethod
-    def detach_analysis_from_case(cls, case_id: str, analysis_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def detach_analysis_from_case(
+        cls,
+        case_id: str,
+        analysis_id: str,
+        actor: Optional[ActorContext] = None,
+        db_path: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         """Detaches an analysis from a case."""
-        success = ForensicRepository.detach_analysis_from_case(case_id, analysis_id, db_path=db_path)
+        success = ForensicRepository.detach_analysis_from_case(case_id, analysis_id, actor=actor, db_path=db_path)
         if not success:
             return None
         return ForensicRepository.get_case(case_id, db_path=db_path)
@@ -135,6 +145,7 @@ class CaseService:
         filename: str,
         sha256: str,
         analysis_id: Optional[str] = None,
+        actor: Optional[ActorContext] = None,
         db_path: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Adds an artifact link to a case."""
@@ -144,6 +155,7 @@ class CaseService:
 
         art_id = f"art_{uuid.uuid4().hex[:8]}"
         now_iso = datetime.now(timezone.utc).isoformat()
+        attached_by = actor.actor_id if actor else "analyst"
 
         conn = get_db_connection(db_path)
         cursor = conn.cursor()
@@ -157,7 +169,7 @@ class CaseService:
         if analysis_id:
             cursor.execute(
                 "INSERT OR IGNORE INTO case_analyses (case_id, analysis_id, attached_at, attached_by) VALUES (?, ?, ?, ?)",
-                (case_id, analysis_id, now_iso, "analyst")
+                (case_id, analysis_id, now_iso, attached_by)
             )
         cursor.execute("UPDATE cases SET updated_at = ? WHERE id = ?", (now_iso, case_id))
         conn.commit()
@@ -166,7 +178,15 @@ class CaseService:
         return ForensicRepository.get_case(case_id, db_path=db_path)
 
     @classmethod
-    def add_note_to_case(cls, case_id: str, author: str, note_text: str, analyst_id: str = "analyst-01", db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def add_note_to_case(
+        cls,
+        case_id: str,
+        author: Optional[str] = None,
+        note_text: str = "",
+        analyst_id: Optional[str] = None,
+        actor: Optional[ActorContext] = None,
+        db_path: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         """Appends an immutable analyst note to a case."""
         case_dict = ForensicRepository.get_case(case_id, db_path=db_path)
         if not case_dict:
@@ -180,12 +200,21 @@ class CaseService:
             analyst_id=analyst_id,
             analyst_name=author,
             note_text=note_text,
+            actor=actor,
             db_path=db_path,
         )
         return ForensicRepository.get_case(case_id, db_path=db_path)
 
     @classmethod
-    def add_note_to_analysis(cls, analysis_id: str, author: str, note_text: str, analyst_id: str = "analyst-01", db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def add_note_to_analysis(
+        cls,
+        analysis_id: str,
+        author: Optional[str] = None,
+        note_text: str = "",
+        analyst_id: Optional[str] = None,
+        actor: Optional[ActorContext] = None,
+        db_path: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         """Appends an immutable analyst note to an analysis."""
         analysis = ForensicRepository.get_analysis(analysis_id, db_path=db_path)
         if not analysis:
@@ -199,10 +228,17 @@ class CaseService:
             analyst_id=analyst_id,
             analyst_name=author,
             note_text=note_text,
+            actor=actor,
             db_path=db_path,
         )
 
     @classmethod
-    def archive_case(cls, case_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def archive_case(
+        cls,
+        case_id: str,
+        actor: Optional[ActorContext] = None,
+        db_path: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         """Soft-archives a case without erasing linked evidence."""
-        return ForensicRepository.archive_case(case_id, db_path=db_path)
+        return ForensicRepository.archive_case(case_id, actor=actor, db_path=db_path)
+

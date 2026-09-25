@@ -12,6 +12,18 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Tuple
 
 from app.db.database import get_db_connection
+from app.schemas.identity import (
+    ActorContext,
+    validate_actor_id,
+    sanitize_display_name,
+    IDENTITY_SOURCE_LOCAL_DECLARED,
+    IDENTITY_SOURCE_API_HEADER_DECLARED,
+    IDENTITY_SOURCE_SYSTEM,
+    IDENTITY_SOURCE_UNKNOWN,
+    ATTRIBUTION_STATUS_ATTRIBUTED,
+    ATTRIBUTION_STATUS_UNATTRIBUTED,
+    ATTRIBUTION_STATUS_SYSTEM_GENERATED,
+)
 from app.schemas.api import (
     AnalysisDetailResponse,
     AnalysisSummaryResponse,
@@ -73,6 +85,11 @@ def canonical_json_bytes(data: Any) -> bytes:
     ).encode("utf-8")
 
 
+def canonical_json_str(data: Any) -> str:
+    """Deterministic canonical JSON string."""
+    return canonical_json_bytes(data).decode("utf-8")
+
+
 def compute_sha256(data: bytes) -> str:
     """Standard lowercase hex SHA-256 digest."""
     return hashlib.sha256(data).hexdigest()
@@ -89,6 +106,133 @@ class ForensicRepository:
     reconstructed sessions, findings, cases, and custody logs.
     """
 
+    @staticmethod
+    def canonical_json(data: Any) -> str:
+        """Returns canonical JSON string under SECUREMAILSCOPE_CANONICAL_JSON_V1 specification."""
+        return canonical_json_str(data)
+
+    # -----------------------------------------------------------------------
+    # 0. Analyst Attribution Registry (Metadata Only - No Passwords/Tokens)
+    # -----------------------------------------------------------------------
+    @classmethod
+    def register_analyst(
+        cls,
+        analyst_id: str,
+        display_name: str,
+        email_or_label: Optional[str] = None,
+        identity_source: str = IDENTITY_SOURCE_LOCAL_DECLARED,
+        db_path: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Registers or activates a declared analyst identity profile in the attribution registry."""
+        valid_id = validate_actor_id(analyst_id)
+        valid_name = sanitize_display_name(display_name)
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            INSERT INTO analysts (analyst_id, display_name, email_or_label, identity_source, attribution_status, created_at, updated_at, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+            ON CONFLICT(analyst_id) DO UPDATE SET
+                display_name = excluded.display_name,
+                email_or_label = excluded.email_or_label,
+                updated_at = excluded.updated_at,
+                is_active = 1
+            """,
+            (valid_id, valid_name, email_or_label, identity_source, ATTRIBUTION_STATUS_ATTRIBUTED, now_iso, now_iso)
+        )
+        conn.commit()
+        conn.close()
+
+        return {
+            "analyst_id": valid_id,
+            "display_name": valid_name,
+            "email_or_label": email_or_label,
+            "identity_source": identity_source,
+            "attribution_status": ATTRIBUTION_STATUS_ATTRIBUTED,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+            "is_active": True,
+        }
+
+    @classmethod
+    def get_analyst(cls, analyst_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Retrieves declared analyst profile from the registry."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM analysts WHERE analyst_id = ?", (analyst_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            return None
+
+        return {
+            "analyst_id": row["analyst_id"],
+            "display_name": row["display_name"],
+            "email_or_label": row["email_or_label"],
+            "identity_source": row["identity_source"],
+            "attribution_status": row["attribution_status"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "is_active": bool(row["is_active"]),
+        }
+
+    @classmethod
+    def update_analyst_profile(
+        cls,
+        analyst_id: str,
+        display_name: str,
+        email_or_label: Optional[str] = None,
+        is_active: bool = True,
+        db_path: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Updates display name or status in the registry. Does not alter historical audit events."""
+        valid_name = sanitize_display_name(display_name)
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE analysts
+            SET display_name = ?, email_or_label = ?, is_active = ?, updated_at = ?
+            WHERE analyst_id = ?
+            """,
+            (valid_name, email_or_label, 1 if is_active else 0, now_iso, analyst_id)
+        )
+        conn.commit()
+        conn.close()
+
+        return cls.get_analyst(analyst_id, db_path=db_path)
+
+    @classmethod
+    def list_analysts(cls, active_only: bool = False, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Lists all registered analyst profiles."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        query = "SELECT * FROM analysts"
+        if active_only:
+            query += " WHERE is_active = 1"
+        query += " ORDER BY created_at ASC"
+
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        conn.close()
+
+        return [{
+            "analyst_id": r["analyst_id"],
+            "display_name": r["display_name"],
+            "email_or_label": r["email_or_label"],
+            "identity_source": r["identity_source"],
+            "attribution_status": r["attribution_status"],
+            "created_at": r["created_at"],
+            "updated_at": r["updated_at"],
+            "is_active": bool(r["is_active"]),
+        } for r in rows]
+
     # -----------------------------------------------------------------------
     # 1. Analyses Persistence
     # -----------------------------------------------------------------------
@@ -98,6 +242,7 @@ class ForensicRepository:
         analysis: AnalysisDetailResponse,
         raw_sessions: Optional[List[EmailSession]] = None,
         raw_packets_by_session: Optional[Dict[str, List[PacketEvidenceDTO]]] = None,
+        actor: Optional[ActorContext] = None,
         db_path: Optional[str] = None
     ) -> str:
         """
@@ -106,6 +251,7 @@ class ForensicRepository:
         """
         conn = get_db_connection(db_path)
         cursor = conn.cursor()
+        act = actor or ActorContext.unattributed()
 
         try:
             # Check existing analysis status
@@ -133,10 +279,11 @@ class ForensicRepository:
                 INSERT INTO analyses (
                     analysis_id, revision, filename, file_size_bytes, capture_sha256,
                     analyzer_version, schema_version, analysis_status, created_at, finalized_at,
-                    is_finalized, is_archived, observed_result_json, observed_result_sha256,
+                    is_finalized, is_archived, created_by_actor_id, finalized_by_actor_id,
+                    observed_result_json, observed_result_sha256,
                     total_packets, raw_total_frames, email_sessions_found,
                     evidence_confidence_score, evidence_confidence_level, security_grade
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(analysis_id) DO UPDATE SET
                     analysis_status = excluded.analysis_status,
                     finalized_at = excluded.finalized_at,
@@ -156,6 +303,8 @@ class ForensicRepository:
                     now_iso,
                     1,
                     0,
+                    act.actor_id,
+                    act.actor_id,
                     analysis_json,
                     analysis_hash,
                     analysis.total_packets_extracted,
@@ -578,34 +727,58 @@ class ForensicRepository:
         case_id: str,
         title: str,
         description: str = "",
-        analyst_id: str = "analyst-01",
-        analyst_name: str = "Default Local Analyst",
+        analyst_id: str = "UNATTRIBUTED",
+        analyst_name: str = "Unattributed Analyst",
         tags: Optional[List[str]] = None,
+        actor: Optional[ActorContext] = None,
         db_path: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Creates a new case in the persistent store."""
+        """Creates a new case in the persistent store with actor attribution."""
         now_iso = datetime.now(timezone.utc).isoformat()
         tags_list = tags or ["Email-Forensics"]
+        act = actor or (ActorContext.local_declared(analyst_id, analyst_name) if analyst_id != "UNATTRIBUTED" else ActorContext.unattributed())
         conn = get_db_connection(db_path)
         cursor = conn.cursor()
 
         cursor.execute(
             """
-            INSERT INTO cases (id, title, description, status, analyst_id, analyst_name, tags_json, created_at, updated_at, is_archived)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO cases (
+                id, title, description, status, analyst_id, analyst_name,
+                created_by_actor_id, created_by_display_name,
+                tags_json, created_at, updated_at, is_archived
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (case_id, title, description, "OPEN", analyst_id, analyst_name, json.dumps(tags_list), now_iso, now_iso, 0)
+            (
+                case_id, title, description, "OPEN", act.actor_id, act.actor_display_name,
+                act.actor_id, act.actor_display_name,
+                json.dumps(tags_list), now_iso, now_iso, 0
+            )
         )
         conn.commit()
         conn.close()
+
+        # Record CASE_CREATED system audit event
+        try:
+            cls.record_audit_event(
+                event_type="CASE_CREATED",
+                object_type="CASE",
+                object_id=case_id,
+                details=f"Case {case_id} created: {title}",
+                actor=act,
+                db_path=db_path
+            )
+        except Exception:
+            pass
 
         return {
             "id": case_id,
             "title": title,
             "description": description,
             "status": "OPEN",
-            "analyst_id": analyst_id,
-            "analyst_name": analyst_name,
+            "analyst_id": act.actor_id,
+            "analyst_name": act.actor_display_name,
+            "created_by_actor_id": act.actor_id,
+            "created_by_display_name": act.actor_display_name,
             "tags": tags_list,
             "created_at_iso": now_iso,
             "updated_at_iso": now_iso,
@@ -652,10 +825,17 @@ class ForensicRepository:
             "note_id": r["note_id"],
             "author": r["analyst_name"],
             "analyst_id": r["analyst_id"],
+            "identity_source": r["identity_source"] if "identity_source" in r.keys() else "LOCAL_DECLARED",
+            "attribution_status": r["attribution_status"] if "attribution_status" in r.keys() else "ATTRIBUTED",
             "text": r["note_text"],
             "sha256": r["note_sha256"],
             "timestamp_iso": r["created_at"],
         } for r in cursor.fetchall()]
+
+        col_keys = row.keys()
+        created_actor_id = row["created_by_actor_id"] if "created_by_actor_id" in col_keys else (row["analyst_id"] or "UNATTRIBUTED")
+        created_actor_name = row["created_by_display_name"] if "created_by_display_name" in col_keys else (row["analyst_name"] or "Unattributed Analyst")
+        archived_actor_id = row["archived_by_actor_id"] if "archived_by_actor_id" in col_keys else None
 
         conn.close()
 
@@ -664,8 +844,11 @@ class ForensicRepository:
             "title": row["title"],
             "description": row["description"],
             "status": row["status"],
-            "analyst_id": row["analyst_id"],
-            "analyst_name": row["analyst_name"],
+            "analyst_id": row["analyst_id"] or "UNATTRIBUTED",
+            "analyst_name": row["analyst_name"] or "Unattributed Analyst",
+            "created_by_actor_id": created_actor_id,
+            "created_by_display_name": created_actor_name,
+            "archived_by_actor_id": archived_actor_id,
             "tags": json.loads(row["tags_json"]) if row["tags_json"] else [],
             "created_at_iso": row["created_at"],
             "updated_at_iso": row["updated_at"],
@@ -698,16 +881,24 @@ class ForensicRepository:
         return results
 
     @classmethod
-    def attach_analysis_to_case(cls, case_id: str, analysis_id: str, analyst_id: str = "analyst-01", db_path: Optional[str] = None) -> bool:
-        """Attaches an analysis to a case and records chained audit event."""
+    def attach_analysis_to_case(
+        cls,
+        case_id: str,
+        analysis_id: str,
+        analyst_id: str = "UNATTRIBUTED",
+        actor: Optional[ActorContext] = None,
+        db_path: Optional[str] = None
+    ) -> bool:
+        """Attaches an analysis to a case and records chained audit event with actor attribution."""
         conn = get_db_connection(db_path)
         cursor = conn.cursor()
         now_iso = datetime.now(timezone.utc).isoformat()
+        act = actor or (ActorContext.local_declared(analyst_id) if analyst_id != "UNATTRIBUTED" else ActorContext.unattributed())
 
         try:
             cursor.execute(
                 "INSERT OR IGNORE INTO case_analyses (case_id, analysis_id, attached_at, attached_by) VALUES (?, ?, ?, ?)",
-                (case_id, analysis_id, now_iso, analyst_id)
+                (case_id, analysis_id, now_iso, act.actor_id)
             )
             cursor.execute("UPDATE cases SET updated_at = ? WHERE id = ?", (now_iso, case_id))
 
@@ -718,21 +909,32 @@ class ForensicRepository:
             evt_id = f"evt_{uuid.uuid4().hex[:12]}"
             details = f"Analysis {analysis_id} attached to case {case_id}"
             evt_dict = {
-                "event_id": evt_id,
-                "timestamp_utc": now_iso,
-                "event_type": "CASE_ANALYSIS_ATTACHED",
-                "object_type": "CASE",
-                "object_id": case_id,
+                "actor_attribution_status": act.actor_attribution_status,
+                "actor_display_name": act.actor_display_name,
+                "actor_id": act.actor_id,
+                "actor_identity_source": act.actor_identity_source,
                 "details": details,
+                "event_id": evt_id,
+                "event_type": "CASE_ANALYSIS_ATTACHED",
+                "object_id": case_id,
+                "object_type": "CASE",
                 "previous_event_hash": prev_hash,
+                "timestamp_utc": now_iso,
             }
             evt_hash = compute_sha256(canonical_json_bytes(evt_dict))
             cursor.execute(
                 """
-                INSERT INTO audit_events (event_id, timestamp_utc, event_type, object_type, object_id, details, previous_event_hash, current_event_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO audit_events (
+                    event_id, timestamp_utc, event_type, object_type, object_id,
+                    actor_id, actor_display_name, actor_identity_source, actor_attribution_status,
+                    details, previous_event_hash, current_event_hash
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (evt_id, now_iso, "CASE_ANALYSIS_ATTACHED", "CASE", case_id, details, prev_hash, evt_hash)
+                (
+                    evt_id, now_iso, "CASE_ANALYSIS_ATTACHED", "CASE", case_id,
+                    act.actor_id, act.actor_display_name, act.actor_identity_source, act.actor_attribution_status,
+                    details, prev_hash, evt_hash
+                )
             )
 
             conn.commit()
@@ -744,11 +946,18 @@ class ForensicRepository:
             conn.close()
 
     @classmethod
-    def detach_analysis_from_case(cls, case_id: str, analysis_id: str, db_path: Optional[str] = None) -> bool:
-        """Detaches an analysis from a case and records chained audit event."""
+    def detach_analysis_from_case(
+        cls,
+        case_id: str,
+        analysis_id: str,
+        actor: Optional[ActorContext] = None,
+        db_path: Optional[str] = None
+    ) -> bool:
+        """Detaches an analysis from a case and records chained audit event with actor attribution."""
         conn = get_db_connection(db_path)
         cursor = conn.cursor()
         now_iso = datetime.now(timezone.utc).isoformat()
+        act = actor or ActorContext.unattributed()
 
         try:
             cursor.execute("DELETE FROM case_analyses WHERE case_id = ? AND analysis_id = ?", (case_id, analysis_id))
@@ -761,21 +970,32 @@ class ForensicRepository:
             evt_id = f"evt_{uuid.uuid4().hex[:12]}"
             details = f"Analysis {analysis_id} detached from case {case_id}"
             evt_dict = {
-                "event_id": evt_id,
-                "timestamp_utc": now_iso,
-                "event_type": "CASE_ANALYSIS_DETACHED",
-                "object_type": "CASE",
-                "object_id": case_id,
+                "actor_attribution_status": act.actor_attribution_status,
+                "actor_display_name": act.actor_display_name,
+                "actor_id": act.actor_id,
+                "actor_identity_source": act.actor_identity_source,
                 "details": details,
+                "event_id": evt_id,
+                "event_type": "CASE_ANALYSIS_DETACHED",
+                "object_id": case_id,
+                "object_type": "CASE",
                 "previous_event_hash": prev_hash,
+                "timestamp_utc": now_iso,
             }
             evt_hash = compute_sha256(canonical_json_bytes(evt_dict))
             cursor.execute(
                 """
-                INSERT INTO audit_events (event_id, timestamp_utc, event_type, object_type, object_id, details, previous_event_hash, current_event_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO audit_events (
+                    event_id, timestamp_utc, event_type, object_type, object_id,
+                    actor_id, actor_display_name, actor_identity_source, actor_attribution_status,
+                    details, previous_event_hash, current_event_hash
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (evt_id, now_iso, "CASE_ANALYSIS_DETACHED", "CASE", case_id, details, prev_hash, evt_hash)
+                (
+                    evt_id, now_iso, "CASE_ANALYSIS_DETACHED", "CASE", case_id,
+                    act.actor_id, act.actor_display_name, act.actor_identity_source, act.actor_attribution_status,
+                    details, prev_hash, evt_hash
+                )
             )
 
             conn.commit()
@@ -787,14 +1007,23 @@ class ForensicRepository:
             conn.close()
 
     @classmethod
-    def archive_case(cls, case_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Soft-archives a case and records CASE_ARCHIVED chained audit event."""
+    def archive_case(
+        cls,
+        case_id: str,
+        actor: Optional[ActorContext] = None,
+        db_path: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Soft-archives a case and records CASE_ARCHIVED chained audit event with actor attribution."""
         conn = get_db_connection(db_path)
         cursor = conn.cursor()
         now_iso = datetime.now(timezone.utc).isoformat()
+        act = actor or ActorContext.unattributed()
 
         try:
-            cursor.execute("UPDATE cases SET status = 'ARCHIVED', is_archived = 1, updated_at = ? WHERE id = ?", (now_iso, case_id))
+            cursor.execute(
+                "UPDATE cases SET status = 'ARCHIVED', is_archived = 1, archived_by_actor_id = ?, updated_at = ? WHERE id = ?",
+                (act.actor_id, now_iso, case_id)
+            )
 
             cursor.execute("SELECT current_event_hash FROM audit_events ORDER BY rowid DESC LIMIT 1")
             last_row = cursor.fetchone()
@@ -803,21 +1032,32 @@ class ForensicRepository:
             evt_id = f"evt_{uuid.uuid4().hex[:12]}"
             details = f"Case {case_id} archived"
             evt_dict = {
-                "event_id": evt_id,
-                "timestamp_utc": now_iso,
-                "event_type": "CASE_ARCHIVED",
-                "object_type": "CASE",
-                "object_id": case_id,
+                "actor_attribution_status": act.actor_attribution_status,
+                "actor_display_name": act.actor_display_name,
+                "actor_id": act.actor_id,
+                "actor_identity_source": act.actor_identity_source,
                 "details": details,
+                "event_id": evt_id,
+                "event_type": "CASE_ARCHIVED",
+                "object_id": case_id,
+                "object_type": "CASE",
                 "previous_event_hash": prev_hash,
+                "timestamp_utc": now_iso,
             }
             evt_hash = compute_sha256(canonical_json_bytes(evt_dict))
             cursor.execute(
                 """
-                INSERT INTO audit_events (event_id, timestamp_utc, event_type, object_type, object_id, details, previous_event_hash, current_event_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO audit_events (
+                    event_id, timestamp_utc, event_type, object_type, object_id,
+                    actor_id, actor_display_name, actor_identity_source, actor_attribution_status,
+                    details, previous_event_hash, current_event_hash
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (evt_id, now_iso, "CASE_ARCHIVED", "CASE", case_id, details, prev_hash, evt_hash)
+                (
+                    evt_id, now_iso, "CASE_ARCHIVED", "CASE", case_id,
+                    act.actor_id, act.actor_display_name, act.actor_identity_source, act.actor_attribution_status,
+                    details, prev_hash, evt_hash
+                )
             )
 
             conn.commit()
@@ -830,7 +1070,7 @@ class ForensicRepository:
         return cls.get_case(case_id, db_path=db_path)
 
     # -----------------------------------------------------------------------
-    # 4. Analyst Notes (Additive Only with Canonical Hashing)
+    # 4. Analyst Notes (Additive Only with Canonical Hashing & Attribution)
     # -----------------------------------------------------------------------
     @classmethod
     def add_analyst_note(
@@ -838,19 +1078,26 @@ class ForensicRepository:
         note_id: str,
         target_type: str,
         target_id: str,
-        analyst_id: str,
-        analyst_name: str,
-        note_text: str,
+        analyst_id: str = "UNATTRIBUTED",
+        analyst_name: str = "Unattributed Analyst",
+        note_text: str = "",
+        actor: Optional[ActorContext] = None,
         db_path: Optional[str] = None
     ) -> Dict[str, Any]:
         """Appends an immutable SHA-256 integrity-hashed analyst note using canonical JSON."""
         now_iso = datetime.now(timezone.utc).isoformat()
+        act = actor or (ActorContext.local_declared(analyst_id, analyst_name) if analyst_id != "UNATTRIBUTED" else ActorContext.unattributed())
+        effective_analyst_id = act.actor_id
+        effective_analyst_name = act.actor_display_name
+        identity_source = act.actor_identity_source
+        attribution_status = act.actor_attribution_status
+
         note_obj = {
-            "target_type": target_type,
-            "target_id": target_id,
-            "analyst_id": analyst_id,
+            "analyst_id": effective_analyst_id,
             "created_at": now_iso,
             "note_text": note_text,
+            "target_id": target_id,
+            "target_type": target_type,
         }
         note_bytes = canonical_json_bytes(note_obj)
         note_hash = compute_sha256(note_bytes)
@@ -860,10 +1107,15 @@ class ForensicRepository:
 
         cursor.execute(
             """
-            INSERT INTO analyst_notes (note_id, target_type, target_id, analyst_id, analyst_name, note_text, note_sha256, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO analyst_notes (
+                note_id, target_type, target_id, analyst_id, analyst_name,
+                identity_source, attribution_status, note_text, note_sha256, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (note_id, target_type, target_id, analyst_id, analyst_name, note_text, note_hash, now_iso)
+            (
+                note_id, target_type, target_id, effective_analyst_id, effective_analyst_name,
+                identity_source, attribution_status, note_text, note_hash, now_iso
+            )
         )
         if target_type == "CASE":
             cursor.execute("UPDATE cases SET updated_at = ? WHERE id = ?", (now_iso, target_id))
@@ -875,8 +1127,10 @@ class ForensicRepository:
             "note_id": note_id,
             "target_type": target_type,
             "target_id": target_id,
-            "analyst_id": analyst_id,
-            "analyst_name": analyst_name,
+            "analyst_id": effective_analyst_id,
+            "analyst_name": effective_analyst_name,
+            "identity_source": identity_source,
+            "attribution_status": attribution_status,
             "note_text": note_text,
             "note_integrity_sha256": note_hash,
             "created_at": now_iso,
@@ -898,26 +1152,37 @@ class ForensicRepository:
         for r in rows:
             if verify_integrity:
                 canonical_obj = {
-                    "target_type": r["target_type"],
-                    "target_id": r["target_id"],
                     "analyst_id": r["analyst_id"],
                     "created_at": r["created_at"],
                     "note_text": r["note_text"],
+                    "target_id": r["target_id"],
+                    "target_type": r["target_type"],
                 }
                 computed_hash = compute_sha256(canonical_json_bytes(canonical_obj))
                 if computed_hash != r["note_sha256"]:
-                    # Legacy delimiter fallback check
-                    legacy_bytes = f"{r['target_type']}|{r['target_id']}|{r['analyst_id']}|{r['created_at']}|{r['note_text']}".encode("utf-8")
-                    if compute_sha256(legacy_bytes) != r["note_sha256"]:
-                        raise IntegrityVerificationError(
-                            f"Integrity check FAILED for analyst note '{r['note_id']}'. Tampered note content detected."
-                        )
+                    # Legacy 1: Key order variation check
+                    alt_obj = {
+                        "target_type": r["target_type"],
+                        "target_id": r["target_id"],
+                        "analyst_id": r["analyst_id"],
+                        "created_at": r["created_at"],
+                        "note_text": r["note_text"],
+                    }
+                    if compute_sha256(canonical_json_bytes(alt_obj)) != r["note_sha256"]:
+                        # Legacy 2: Pipe delimiter fallback
+                        legacy_bytes = f"{r['target_type']}|{r['target_id']}|{r['analyst_id']}|{r['created_at']}|{r['note_text']}".encode("utf-8")
+                        if compute_sha256(legacy_bytes) != r["note_sha256"]:
+                            raise IntegrityVerificationError(
+                                f"Integrity check FAILED for analyst note '{r['note_id']}'. Tampered note content detected."
+                            )
             notes.append({
                 "note_id": r["note_id"],
                 "target_type": r["target_type"],
                 "target_id": r["target_id"],
-                "analyst_id": r["analyst_id"],
-                "analyst_name": r["analyst_name"],
+                "analyst_id": r["analyst_id"] or "UNATTRIBUTED",
+                "analyst_name": r["analyst_name"] or "Unattributed Analyst",
+                "identity_source": r["identity_source"] if "identity_source" in r.keys() else "LOCAL_DECLARED",
+                "attribution_status": r["attribution_status"] if "attribution_status" in r.keys() else "ATTRIBUTED",
                 "note_text": r["note_text"],
                 "note_integrity_sha256": r["note_sha256"],
                 "created_at": r["created_at"],
@@ -936,13 +1201,15 @@ class ForensicRepository:
         requested_actions: List[str],
         projection_dict: Dict[str, Any],
         parameters: Optional[Dict[str, Any]] = None,
+        actor: Optional[ActorContext] = None,
         db_path: Optional[str] = None
     ) -> str:
-        """Persists a hypothetical remediation simulation projection."""
+        """Persists a hypothetical remediation simulation projection with actor attribution."""
         now_iso = datetime.now(timezone.utc).isoformat()
         proj_bytes = canonical_json_bytes(projection_dict)
         proj_json = proj_bytes.decode("utf-8")
         proj_hash = compute_sha256(proj_bytes)
+        act = actor or ActorContext.unattributed()
 
         conn = get_db_connection(db_path)
         cursor = conn.cursor()
@@ -952,8 +1219,9 @@ class ForensicRepository:
             INSERT OR REPLACE INTO simulations (
                 simulation_id, analysis_id, session_id, requested_actions_json,
                 parameters_json, projection_json, projection_sha256,
+                created_by_actor_id, identity_source,
                 authoritative, historical_applicability, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 simulation_id,
@@ -963,6 +1231,8 @@ class ForensicRepository:
                 json.dumps(parameters) if parameters else None,
                 proj_json,
                 proj_hash,
+                act.actor_id,
+                act.actor_identity_source,
                 0,
                 "HYPOTHETICAL",
                 now_iso,
@@ -991,12 +1261,15 @@ class ForensicRepository:
                     f"Integrity check FAILED for simulation '{simulation_id}'. Tampered projection JSON detected."
                 )
 
+        col_keys = row.keys()
         return {
             "simulation_id": row["simulation_id"],
             "analysis_id": row["analysis_id"],
             "session_id": row["session_id"],
             "requested_actions": json.loads(row["requested_actions_json"]) if row["requested_actions_json"] else [],
             "parameters": json.loads(row["parameters_json"]) if row["parameters_json"] else None,
+            "created_by_actor_id": row["created_by_actor_id"] if "created_by_actor_id" in col_keys else "UNATTRIBUTED",
+            "identity_source": row["identity_source"] if "identity_source" in col_keys else "UNKNOWN",
             "projection": json.loads(row["projection_json"]),
             "projection_sha256": row["projection_sha256"],
             "authoritative": bool(row["authoritative"]),
@@ -1013,13 +1286,15 @@ class ForensicRepository:
         ports_scanned: List[int],
         result_dict: Dict[str, Any],
         provenance: str = "ACTIVE_NETWORK_PROBE",
+        actor: Optional[ActorContext] = None,
         db_path: Optional[str] = None
     ) -> str:
-        """Persists an active network posture scan with canonical hashing."""
+        """Persists an active network posture scan with canonical hashing and actor attribution."""
         now_iso = datetime.now(timezone.utc).isoformat()
         res_bytes = canonical_json_bytes(result_dict)
         res_json = res_bytes.decode("utf-8")
         res_hash = compute_sha256(res_bytes)
+        act = actor or ActorContext.unattributed()
 
         conn = get_db_connection(db_path)
         cursor = conn.cursor()
@@ -1028,14 +1303,17 @@ class ForensicRepository:
             """
             INSERT OR REPLACE INTO active_scans (
                 scan_id, target_host, connected_ip, ports_scanned_json,
+                initiated_by_actor_id, identity_source,
                 provenance, historical_applicability, result_json, result_sha256, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 scan_id,
                 target_host,
                 connected_ip,
                 json.dumps(ports_scanned),
+                act.actor_id,
+                act.actor_identity_source,
                 provenance,
                 "CURRENT_STATE_ONLY",
                 res_json,
@@ -1066,11 +1344,14 @@ class ForensicRepository:
                     f"Integrity check FAILED for active scan '{scan_id}'. Tampered scan result JSON detected."
                 )
 
+        col_keys = row.keys()
         return {
             "scan_id": row["scan_id"],
             "target_host": row["target_host"],
             "connected_ip": row["connected_ip"],
             "ports_scanned": json.loads(row["ports_scanned_json"]) if row["ports_scanned_json"] else [],
+            "initiated_by_actor_id": row["initiated_by_actor_id"] if "initiated_by_actor_id" in col_keys else "UNATTRIBUTED",
+            "identity_source": row["identity_source"] if "identity_source" in col_keys else "UNKNOWN",
             "provenance": row["provenance"],
             "historical_applicability": row["historical_applicability"],
             "result": json.loads(row["result_json"]),
@@ -1087,13 +1368,15 @@ class ForensicRepository:
         result_dict: Dict[str, Any],
         queried_at_utc: str,
         provenance: str = "ACTIVE_DNS_ENRICHMENT",
+        actor: Optional[ActorContext] = None,
         db_path: Optional[str] = None
     ) -> str:
-        """Persists an active DNS enrichment query with canonical hashing."""
+        """Persists an active DNS enrichment query with canonical hashing and actor attribution."""
         now_iso = datetime.now(timezone.utc).isoformat()
         res_bytes = canonical_json_bytes(result_dict)
         res_json = res_bytes.decode("utf-8")
         res_hash = compute_sha256(res_bytes)
+        act = actor or ActorContext.unattributed()
 
         conn = get_db_connection(db_path)
         cursor = conn.cursor()
@@ -1102,14 +1385,17 @@ class ForensicRepository:
             """
             INSERT OR REPLACE INTO dns_enrichments (
                 enrichment_id, target_domain, resolver_provider,
+                queried_by_actor_id, identity_source,
                 provenance, historical_applicability, result_json, result_sha256,
                 queried_at_utc, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 enrichment_id,
                 target_domain,
                 resolver_provider,
+                act.actor_id,
+                act.actor_identity_source,
                 provenance,
                 "CURRENT_STATE_ONLY",
                 res_json,
@@ -1141,10 +1427,13 @@ class ForensicRepository:
                     f"Integrity check FAILED for DNS enrichment '{enrichment_id}'. Tampered result JSON detected."
                 )
 
+        col_keys = row.keys()
         return {
             "enrichment_id": row["enrichment_id"],
             "target_domain": row["target_domain"],
             "resolver_provider": row["resolver_provider"],
+            "queried_by_actor_id": row["queried_by_actor_id"] if "queried_by_actor_id" in col_keys else "UNATTRIBUTED",
+            "identity_source": row["identity_source"] if "identity_source" in col_keys else "UNKNOWN",
             "provenance": row["provenance"],
             "historical_applicability": row["historical_applicability"],
             "result": json.loads(row["result_json"]),
@@ -1157,6 +1446,72 @@ class ForensicRepository:
     # 6. System Audit Events Log & Chain Verification
     # -----------------------------------------------------------------------
     @classmethod
+    def record_audit_event(
+        cls,
+        event_type: str,
+        object_type: str,
+        object_id: str,
+        details: str,
+        actor: Optional[ActorContext] = None,
+        db_path: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Appends a hash-chained system audit event with actor attribution."""
+        act = actor or ActorContext.unattributed()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        evt_id = f"evt_{uuid.uuid4().hex[:12]}"
+
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT current_event_hash FROM audit_events ORDER BY rowid DESC LIMIT 1")
+        last_row = cursor.fetchone()
+        prev_hash = last_row["current_event_hash"] if last_row and last_row["current_event_hash"] else ("0" * 64)
+
+        evt_dict = {
+            "actor_attribution_status": act.actor_attribution_status,
+            "actor_display_name": act.actor_display_name,
+            "actor_id": act.actor_id,
+            "actor_identity_source": act.actor_identity_source,
+            "details": details,
+            "event_id": evt_id,
+            "event_type": event_type,
+            "object_id": object_id,
+            "object_type": object_type,
+            "previous_event_hash": prev_hash,
+            "timestamp_utc": now_iso,
+        }
+        evt_hash = compute_sha256(canonical_json_bytes(evt_dict))
+
+        cursor.execute(
+            """
+            INSERT INTO audit_events (
+                event_id, timestamp_utc, event_type, object_type, object_id,
+                actor_id, actor_display_name, actor_identity_source, actor_attribution_status,
+                details, previous_event_hash, current_event_hash
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                evt_id,
+                now_iso,
+                event_type,
+                object_type,
+                object_id,
+                act.actor_id,
+                act.actor_display_name,
+                act.actor_identity_source,
+                act.actor_attribution_status,
+                details,
+                prev_hash,
+                evt_hash,
+            )
+        )
+        conn.commit()
+        conn.close()
+
+        evt_dict["current_event_hash"] = evt_hash
+        return evt_dict
+
+    @classmethod
     def get_audit_events(
         cls,
         object_type: Optional[str] = None,
@@ -1164,7 +1519,7 @@ class ForensicRepository:
         verify_integrity: bool = True,
         db_path: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Retrieves system audit events with cryptographic chain integrity verification."""
+        """Retrieves system audit events with cryptographic chain integrity verification including actor attribution."""
         conn = get_db_connection(db_path)
         cursor = conn.cursor()
 
@@ -1193,38 +1548,79 @@ class ForensicRepository:
                     raise IntegrityVerificationError(
                         f"Audit event chain broken at event '{r['event_id']}': previous_event_hash mismatch."
                     )
+                col_keys = r.keys()
+                actor_id = r["actor_id"] if "actor_id" in col_keys else "UNATTRIBUTED"
+                actor_name = r["actor_display_name"] if "actor_display_name" in col_keys else "Unattributed Analyst"
+                actor_source = r["actor_identity_source"] if "actor_identity_source" in col_keys else "UNKNOWN"
+                actor_status = r["actor_attribution_status"] if "actor_attribution_status" in col_keys else "UNATTRIBUTED"
+
                 evt_dict = {
-                    "event_id": r["event_id"],
-                    "timestamp_utc": r["timestamp_utc"],
-                    "event_type": r["event_type"],
-                    "object_type": r["object_type"],
-                    "object_id": r["object_id"],
+                    "actor_attribution_status": actor_status,
+                    "actor_display_name": actor_name,
+                    "actor_id": actor_id,
+                    "actor_identity_source": actor_source,
                     "details": r["details"],
+                    "event_id": r["event_id"],
+                    "event_type": r["event_type"],
+                    "object_id": r["object_id"],
+                    "object_type": r["object_type"],
                     "previous_event_hash": r["previous_event_hash"],
+                    "timestamp_utc": r["timestamp_utc"],
                 }
                 computed_hash = compute_sha256(canonical_json_bytes(evt_dict))
                 if computed_hash != r["current_event_hash"]:
-                    raise IntegrityVerificationError(
-                        f"Audit event '{r['event_id']}' current_event_hash verification failed. Tampered audit record detected."
-                    )
+                    # Fallback check for legacy 7-field events
+                    legacy_dict = {
+                        "details": r["details"],
+                        "event_id": r["event_id"],
+                        "event_type": r["event_type"],
+                        "object_id": r["object_id"],
+                        "object_type": r["object_type"],
+                        "previous_event_hash": r["previous_event_hash"],
+                        "timestamp_utc": r["timestamp_utc"],
+                    }
+                    if compute_sha256(canonical_json_bytes(legacy_dict)) != r["current_event_hash"]:
+                        raise IntegrityVerificationError(
+                            f"Audit event '{r['event_id']}' current_event_hash verification failed. Tampered audit record or actor attribution detected."
+                        )
                 expected_prev = r["current_event_hash"]
         elif verify_integrity:
             # Per-event payload integrity check for filtered queries
             for r in rows:
+                col_keys = r.keys()
+                actor_id = r["actor_id"] if "actor_id" in col_keys else "UNATTRIBUTED"
+                actor_name = r["actor_display_name"] if "actor_display_name" in col_keys else "Unattributed Analyst"
+                actor_source = r["actor_identity_source"] if "actor_identity_source" in col_keys else "UNKNOWN"
+                actor_status = r["actor_attribution_status"] if "actor_attribution_status" in col_keys else "UNATTRIBUTED"
+
                 evt_dict = {
-                    "event_id": r["event_id"],
-                    "timestamp_utc": r["timestamp_utc"],
-                    "event_type": r["event_type"],
-                    "object_type": r["object_type"],
-                    "object_id": r["object_id"],
+                    "actor_attribution_status": actor_status,
+                    "actor_display_name": actor_name,
+                    "actor_id": actor_id,
+                    "actor_identity_source": actor_source,
                     "details": r["details"],
+                    "event_id": r["event_id"],
+                    "event_type": r["event_type"],
+                    "object_id": r["object_id"],
+                    "object_type": r["object_type"],
                     "previous_event_hash": r["previous_event_hash"],
+                    "timestamp_utc": r["timestamp_utc"],
                 }
                 computed_hash = compute_sha256(canonical_json_bytes(evt_dict))
                 if computed_hash != r["current_event_hash"]:
-                    raise IntegrityVerificationError(
-                        f"Audit event '{r['event_id']}' current_event_hash verification failed. Tampered audit record detected."
-                    )
+                    legacy_dict = {
+                        "details": r["details"],
+                        "event_id": r["event_id"],
+                        "event_type": r["event_type"],
+                        "object_id": r["object_id"],
+                        "object_type": r["object_type"],
+                        "previous_event_hash": r["previous_event_hash"],
+                        "timestamp_utc": r["timestamp_utc"],
+                    }
+                    if compute_sha256(canonical_json_bytes(legacy_dict)) != r["current_event_hash"]:
+                        raise IntegrityVerificationError(
+                            f"Audit event '{r['event_id']}' current_event_hash verification failed. Tampered audit record or actor attribution detected."
+                        )
 
         return [{
             "event_id": r["event_id"],
@@ -1232,6 +1628,10 @@ class ForensicRepository:
             "event_type": r["event_type"],
             "object_type": r["object_type"],
             "object_id": r["object_id"],
+            "actor_id": r["actor_id"] if "actor_id" in r.keys() else "UNATTRIBUTED",
+            "actor_display_name": r["actor_display_name"] if "actor_display_name" in r.keys() else "Unattributed Analyst",
+            "actor_identity_source": r["actor_identity_source"] if "actor_identity_source" in r.keys() else "UNKNOWN",
+            "actor_attribution_status": r["actor_attribution_status"] if "actor_attribution_status" in r.keys() else "UNATTRIBUTED",
             "details": r["details"],
             "previous_event_hash": r["previous_event_hash"],
             "current_event_hash": r["current_event_hash"],

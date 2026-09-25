@@ -62,6 +62,10 @@ def init_db(db_path: Optional[str] = None):
             cursor.execute("ALTER TABLE analyses ADD COLUMN custody_link_hash TEXT;")
         if "report_link_hash" not in existing_cols:
             cursor.execute("ALTER TABLE analyses ADD COLUMN report_link_hash TEXT;")
+        if "created_by_actor_id" not in existing_cols:
+            cursor.execute("ALTER TABLE analyses ADD COLUMN created_by_actor_id TEXT NOT NULL DEFAULT 'UNATTRIBUTED';")
+        if "finalized_by_actor_id" not in existing_cols:
+            cursor.execute("ALTER TABLE analyses ADD COLUMN finalized_by_actor_id TEXT NOT NULL DEFAULT 'UNATTRIBUTED';")
 
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cases';")
     if cursor.fetchone():
@@ -69,6 +73,75 @@ def init_db(db_path: Optional[str] = None):
         existing_cols = {row["name"] for row in cursor.fetchall()}
         if "is_archived" not in existing_cols:
             cursor.execute("ALTER TABLE cases ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0;")
+        if "created_by_actor_id" not in existing_cols:
+            cursor.execute("ALTER TABLE cases ADD COLUMN created_by_actor_id TEXT NOT NULL DEFAULT 'UNATTRIBUTED';")
+        if "created_by_display_name" not in existing_cols:
+            cursor.execute("ALTER TABLE cases ADD COLUMN created_by_display_name TEXT NOT NULL DEFAULT 'Unattributed Analyst';")
+        if "archived_by_actor_id" not in existing_cols:
+            cursor.execute("ALTER TABLE cases ADD COLUMN archived_by_actor_id TEXT;")
+
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='audit_events';")
+    if cursor.fetchone():
+        cursor.execute("PRAGMA table_info(audit_events);")
+        existing_cols = {row["name"] for row in cursor.fetchall()}
+        if "actor_id" not in existing_cols:
+            cursor.execute("ALTER TABLE audit_events ADD COLUMN actor_id TEXT NOT NULL DEFAULT 'UNATTRIBUTED';")
+        if "actor_display_name" not in existing_cols:
+            cursor.execute("ALTER TABLE audit_events ADD COLUMN actor_display_name TEXT NOT NULL DEFAULT 'Unattributed Analyst';")
+        if "actor_identity_source" not in existing_cols:
+            cursor.execute("ALTER TABLE audit_events ADD COLUMN actor_identity_source TEXT NOT NULL DEFAULT 'UNKNOWN';")
+        if "actor_attribution_status" not in existing_cols:
+            cursor.execute("ALTER TABLE audit_events ADD COLUMN actor_attribution_status TEXT NOT NULL DEFAULT 'UNATTRIBUTED';")
+
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='simulations';")
+    if cursor.fetchone():
+        cursor.execute("PRAGMA table_info(simulations);")
+        existing_cols = {row["name"] for row in cursor.fetchall()}
+        if "created_by_actor_id" not in existing_cols:
+            cursor.execute("ALTER TABLE simulations ADD COLUMN created_by_actor_id TEXT NOT NULL DEFAULT 'UNATTRIBUTED';")
+        if "identity_source" not in existing_cols:
+            cursor.execute("ALTER TABLE simulations ADD COLUMN identity_source TEXT NOT NULL DEFAULT 'UNKNOWN';")
+
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='active_scans';")
+    if cursor.fetchone():
+        cursor.execute("PRAGMA table_info(active_scans);")
+        existing_cols = {row["name"] for row in cursor.fetchall()}
+        if "initiated_by_actor_id" not in existing_cols:
+            cursor.execute("ALTER TABLE active_scans ADD COLUMN initiated_by_actor_id TEXT NOT NULL DEFAULT 'UNATTRIBUTED';")
+        if "identity_source" not in existing_cols:
+            cursor.execute("ALTER TABLE active_scans ADD COLUMN identity_source TEXT NOT NULL DEFAULT 'UNKNOWN';")
+
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='dns_enrichments';")
+    if cursor.fetchone():
+        cursor.execute("PRAGMA table_info(dns_enrichments);")
+        existing_cols = {row["name"] for row in cursor.fetchall()}
+        if "queried_by_actor_id" not in existing_cols:
+            cursor.execute("ALTER TABLE dns_enrichments ADD COLUMN queried_by_actor_id TEXT NOT NULL DEFAULT 'UNATTRIBUTED';")
+        if "identity_source" not in existing_cols:
+            cursor.execute("ALTER TABLE dns_enrichments ADD COLUMN identity_source TEXT NOT NULL DEFAULT 'UNKNOWN';")
+
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='analyst_notes';")
+    if cursor.fetchone():
+        cursor.execute("PRAGMA table_info(analyst_notes);")
+        existing_cols = {row["name"] for row in cursor.fetchall()}
+        if "identity_source" not in existing_cols:
+            cursor.execute("ALTER TABLE analyst_notes ADD COLUMN identity_source TEXT NOT NULL DEFAULT 'LOCAL_DECLARED';")
+        if "attribution_status" not in existing_cols:
+            cursor.execute("ALTER TABLE analyst_notes ADD COLUMN attribution_status TEXT NOT NULL DEFAULT 'ATTRIBUTED';")
+
+    # 0. Analysts table (Attribution Registry - No credentials or secrets)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS analysts (
+            analyst_id TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL,
+            email_or_label TEXT,
+            identity_source TEXT NOT NULL DEFAULT 'LOCAL_DECLARED',
+            attribution_status TEXT NOT NULL DEFAULT 'ATTRIBUTED',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            is_active INTEGER NOT NULL DEFAULT 1
+        )
+    """)
 
     # 1. Analyses table (Authoritative Observed Analyses)
     cursor.execute("""
@@ -85,6 +158,8 @@ def init_db(db_path: Optional[str] = None):
             finalized_at TEXT,
             is_finalized INTEGER NOT NULL DEFAULT 1,
             is_archived INTEGER NOT NULL DEFAULT 0,
+            created_by_actor_id TEXT NOT NULL DEFAULT 'UNATTRIBUTED',
+            finalized_by_actor_id TEXT NOT NULL DEFAULT 'UNATTRIBUTED',
             observed_result_json TEXT NOT NULL,
             observed_result_sha256 TEXT NOT NULL,
             custody_link_hash TEXT,
@@ -210,6 +285,9 @@ def init_db(db_path: Optional[str] = None):
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             is_archived INTEGER NOT NULL DEFAULT 0,
+            created_by_actor_id TEXT NOT NULL DEFAULT 'UNATTRIBUTED',
+            created_by_display_name TEXT NOT NULL DEFAULT 'Unattributed Analyst',
+            archived_by_actor_id TEXT,
             payload_json TEXT
         )
     """)
@@ -250,6 +328,8 @@ def init_db(db_path: Optional[str] = None):
             analyst_name TEXT NOT NULL DEFAULT 'Local Forensic Analyst',
             note_text TEXT NOT NULL,
             note_sha256 TEXT NOT NULL,
+            identity_source TEXT NOT NULL DEFAULT 'LOCAL_DECLARED',
+            attribution_status TEXT NOT NULL DEFAULT 'ATTRIBUTED',
             created_at TEXT NOT NULL
         )
     """)
@@ -266,6 +346,9 @@ def init_db(db_path: Optional[str] = None):
             projection_sha256 TEXT NOT NULL,
             authoritative INTEGER NOT NULL DEFAULT 0,
             historical_applicability TEXT NOT NULL DEFAULT 'HYPOTHETICAL',
+            created_by_actor_id TEXT NOT NULL DEFAULT 'UNATTRIBUTED',
+            identity_source TEXT NOT NULL DEFAULT 'UNKNOWN',
+            attribution_status TEXT NOT NULL DEFAULT 'ATTRIBUTED',
             created_at TEXT NOT NULL,
             FOREIGN KEY (analysis_id) REFERENCES analyses (analysis_id) ON DELETE RESTRICT
         )
@@ -282,6 +365,9 @@ def init_db(db_path: Optional[str] = None):
             historical_applicability TEXT NOT NULL DEFAULT 'CURRENT_STATE_ONLY',
             result_json TEXT NOT NULL,
             result_sha256 TEXT NOT NULL,
+            initiated_by_actor_id TEXT NOT NULL DEFAULT 'UNATTRIBUTED',
+            identity_source TEXT NOT NULL DEFAULT 'UNKNOWN',
+            attribution_status TEXT NOT NULL DEFAULT 'ATTRIBUTED',
             created_at TEXT NOT NULL
         )
     """)
@@ -296,12 +382,15 @@ def init_db(db_path: Optional[str] = None):
             historical_applicability TEXT NOT NULL DEFAULT 'CURRENT_STATE_ONLY',
             result_json TEXT NOT NULL,
             result_sha256 TEXT NOT NULL,
+            queried_by_actor_id TEXT NOT NULL DEFAULT 'UNATTRIBUTED',
+            identity_source TEXT NOT NULL DEFAULT 'UNKNOWN',
+            attribution_status TEXT NOT NULL DEFAULT 'ATTRIBUTED',
             queried_at_utc TEXT NOT NULL,
             created_at TEXT NOT NULL
         )
     """)
 
-    # 14. Audit Events table (System-wide hash-chained audit log)
+    # 14. Audit Events table (System-wide hash-chained audit log with actor attribution)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS audit_events (
             event_id TEXT PRIMARY KEY,
@@ -309,6 +398,10 @@ def init_db(db_path: Optional[str] = None):
             event_type TEXT NOT NULL,
             object_type TEXT NOT NULL,
             object_id TEXT NOT NULL,
+            actor_id TEXT NOT NULL DEFAULT 'UNATTRIBUTED',
+            actor_display_name TEXT NOT NULL DEFAULT 'Unattributed Analyst',
+            actor_identity_source TEXT NOT NULL DEFAULT 'UNKNOWN',
+            actor_attribution_status TEXT NOT NULL DEFAULT 'UNATTRIBUTED',
             details TEXT,
             previous_event_hash TEXT NOT NULL,
             current_event_hash TEXT NOT NULL
@@ -351,6 +444,8 @@ def init_db(db_path: Optional[str] = None):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_analyst_notes_target ON analyst_notes(target_type, target_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_case_analyses_case ON case_analyses(case_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_case_analyses_analysis ON case_analyses(analysis_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_events_actor ON audit_events(actor_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysts_active ON analysts(is_active);")
 
     conn.commit()
     conn.close()

@@ -807,7 +807,7 @@ class TestPersistence(unittest.TestCase):
 
         # Verify entire chain integrity passes
         events = ForensicRepository.get_audit_events(verify_integrity=True, db_path=self.temp_db_path)
-        self.assertEqual(len(events), 4)
+        self.assertEqual(len(events), 5)
 
         # Tamper the details of the second event
         conn = get_db_connection(self.temp_db_path)

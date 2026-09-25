@@ -549,6 +549,10 @@ class CustodyEventDTO(BaseModel):
     previous_event_hash: str
     current_event_hash: str
     details: Optional[str] = None
+    actor_id: Optional[str] = "SYSTEM"
+    actor_display_name: Optional[str] = "SecureMailScope X"
+    actor_identity_source: Optional[str] = "SYSTEM"
+    actor_attribution_status: Optional[str] = "SYSTEM_GENERATED"
 
 
 class CaptureIntegrityDTO(BaseModel):

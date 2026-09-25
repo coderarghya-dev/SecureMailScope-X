@@ -1,12 +1,15 @@
-"""
-SecureMailScope X - Forensic PCAP Analysis Endpoints
-"""
+from fastapi import APIRouter, UploadFile, File, HTTPException, Response, status, Query, Header, Depends
+from typing import List, Dict, Any, Optional
+from pydantic import BaseModel
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Response, status, Query
 from app.schemas.api import AnalysisDetailResponse, ForensicReportResponse, CustodyRecordResponse
+from app.schemas.identity import ActorContext
 from app.services.analysis_service import AnalysisService
 from app.services.report_service import ReportService
 from app.services.custody_service import CustodyService
+from app.db.repository import ForensicRepository
+from app.services.case_service import CaseService
+
 
 router = APIRouter()
 
@@ -18,12 +21,18 @@ router = APIRouter()
     summary="Upload & Analyze PCAP/PCAPNG File",
     description="Upload a packet capture file to execute passive email protocol dissection, STARTTLS state extraction, TLS cryptographic inspection, health scoring, and security assessment."
 )
-async def analyze_pcap_upload(file: UploadFile = File(...)) -> AnalysisDetailResponse:
+async def analyze_pcap_upload(
+    file: UploadFile = File(...),
+    x_analyst_id: Optional[str] = Header(None, alias="X-Analyst-ID"),
+    x_analyst_name: Optional[str] = Header(None, alias="X-Analyst-Name"),
+) -> AnalysisDetailResponse:
     if not file.filename:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Filename is required."
         )
+
+    actor = ActorContext.from_headers(x_analyst_id=x_analyst_id, x_analyst_name=x_analyst_name)
 
     try:
         content = await file.read()
@@ -34,7 +43,7 @@ async def analyze_pcap_upload(file: UploadFile = File(...)) -> AnalysisDetailRes
         )
 
     try:
-        report = AnalysisService.process_pcap_bytes(file.filename, content)
+        report = AnalysisService.process_pcap_bytes(file.filename, content, actor=actor)
         return report
     except ValueError as val_err:
         raise HTTPException(
@@ -48,16 +57,10 @@ async def analyze_pcap_upload(file: UploadFile = File(...)) -> AnalysisDetailRes
         )
 
 
-from typing import List, Dict, Any
-from pydantic import BaseModel
-from app.db.repository import ForensicRepository
-from app.services.case_service import CaseService
-
-
 class AnalysisNoteRequest(BaseModel):
-    author: str
+    author: Optional[str] = None
     text: str
-    analyst_id: str = "analyst-01"
+    analyst_id: Optional[str] = None
 
 
 @router.get(
@@ -95,16 +98,31 @@ def get_analysis_by_id(analysis_id: str) -> AnalysisDetailResponse:
     summary="Add Additive Analyst Note to Analysis",
     description="Appends an immutable, cryptographic analyst note associated with this analysis."
 )
-def add_analysis_note(analysis_id: str, req: AnalysisNoteRequest) -> Dict[str, Any]:
+def add_analysis_note(
+    analysis_id: str,
+    req: AnalysisNoteRequest,
+    x_analyst_id: Optional[str] = Header(None, alias="X-Analyst-ID"),
+    x_analyst_name: Optional[str] = Header(None, alias="X-Analyst-Name"),
+) -> Dict[str, Any]:
+    actor = ActorContext.from_headers(x_analyst_id=x_analyst_id, x_analyst_name=x_analyst_name)
+    if actor.attribution_status == "UNATTRIBUTED" and (req.analyst_id or req.author):
+        actor = ActorContext(
+            actor_id=req.analyst_id or "UNATTRIBUTED",
+            actor_display_name=req.author or req.analyst_id or "Unattributed Actor",
+            identity_source="LOCAL_DECLARED",
+            attribution_status="ATTRIBUTED" if req.analyst_id else "UNATTRIBUTED",
+        )
     note = CaseService.add_note_to_analysis(
         analysis_id=analysis_id,
-        author=req.author,
+        author=actor.actor_display_name,
         note_text=req.text,
-        analyst_id=req.analyst_id
+        analyst_id=actor.actor_id,
+        actor=actor,
     )
     if not note:
         raise HTTPException(status_code=404, detail=f"Analysis '{analysis_id}' not found.")
     return note
+
 
 
 @router.get(
