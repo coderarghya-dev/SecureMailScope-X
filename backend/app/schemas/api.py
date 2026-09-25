@@ -68,6 +68,32 @@ class CipherSuiteInfoDTO(BaseModel):
     is_post_quantum_safe: bool = False
 
 
+class CertificateDetailsDTO(BaseModel):
+    visibility: str = "UNKNOWN"
+    frame_number: Optional[int] = None
+    subject: Optional[str] = None
+    issuer: Optional[str] = None
+    serial_number: Optional[str] = None
+    not_before: Optional[str] = None
+    not_after: Optional[str] = None
+    validity_status: str = "UNKNOWN"
+    days_until_expiry: Optional[int] = None
+    validity_reference_time: Optional[str] = None
+    reference_time_source: str = "CAPTURE_TIMESTAMP"
+    self_issued: Optional[bool] = None
+    self_signature_verified: Optional[bool] = None
+    self_signed: Optional[bool] = None
+    signature_algorithm: Optional[str] = None
+    public_key_algorithm: Optional[str] = None
+    public_key_bits: Optional[int] = None
+    certificate_fingerprint_sha256: Optional[str] = None
+    san_names: List[str] = []
+    chain_length: int = 0
+    chain_observed: bool = False
+    chain_trust_status: str = "NOT_VALIDATED"
+    analysis_limitations: List[str] = []
+
+
 class TLSHandshakeDTO(BaseModel):
     negotiated_version: str
     tls_version: Optional[str] = None
@@ -83,6 +109,7 @@ class TLSHandshakeDTO(BaseModel):
     client_hello_frame: Optional[int] = None
     server_hello_frame: Optional[int] = None
     certificate_visibility: str
+    certificate_details: Optional[CertificateDetailsDTO] = None
 
 
 class CaptureHealthDTO(BaseModel):
@@ -220,6 +247,7 @@ class SessionDetailDTO(BaseModel):
     security_assessment: SecurityAssessmentDTO
     evidence_frames: List[EvidenceFrameDTO] = []
     ml_triage: Optional[MLTriageDTO] = None
+    certificate_details: Optional[CertificateDetailsDTO] = None
 
 
 # ---------------------------------------------------------------------------

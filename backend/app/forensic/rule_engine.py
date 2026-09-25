@@ -495,6 +495,205 @@ class CryptographicRuleEngine:
                         )
                     ))
 
+            # ------------------------------------------------------
+            # RULE 7: X.509 CERTIFICATE SECURITY & VALIDITY (PHASE 6)
+            # ------------------------------------------------------
+            from .certificate_analyzer import CertificateAnalyzer, CertificateValidityStatus, CertificateVisibility
+            cert_details = CertificateAnalyzer.analyze_session(session)
+            tls.certificate_details = cert_details
+            cert_frames = get_frames(cert_details.frame_number or tls.server_hello_frame)
+
+            if cert_details.visibility == CertificateVisibility.OBSERVABLE:
+                # 7a. Expired Certificate
+                if cert_details.validity_status == CertificateValidityStatus.EXPIRED:
+                    findings.append(SecurityFinding(
+                        id="FINDING-CERTIFICATE-EXPIRED",
+                        title="Expired X.509 Server Certificate",
+                        severity=FindingSeverity.HIGH,
+                        category=FindingCategory.CRYPTOGRAPHIC_STRENGTH,
+                        description=f"Server certificate expired on {cert_details.not_after} (reference timestamp: {cert_details.validity_reference_time}).",
+                        evidence_frames=cert_frames,
+                        recommendation="Renew and deploy an active X.509 certificate from a trusted Certificate Authority.",
+                        explanation=FindingExplanation(
+                            finding_id="FINDING-CERTIFICATE-EXPIRED",
+                            rule_id="RULE-CERT-EXPIRED",
+                            why_triggered=f"Server certificate expired on {cert_details.not_after}.",
+                            evidence=[
+                                FindingEvidenceItem(
+                                    type="CERTIFICATE_VALIDITY",
+                                    frame=cert_details.frame_number,
+                                    field="not_after",
+                                    observed_value=str(cert_details.not_after)
+                                )
+                            ],
+                            confidence_boundary="Direct parsing of observable X.509 Validity.notAfter field against session reference time.",
+                            standards_refs=["RFC 5280"]
+                        )
+                    ))
+                # 7b. Not Yet Valid Certificate
+                elif cert_details.validity_status == CertificateValidityStatus.NOT_YET_VALID:
+                    findings.append(SecurityFinding(
+                        id="FINDING-CERTIFICATE-NOT-YET-VALID",
+                        title="Not-Yet-Valid X.509 Server Certificate",
+                        severity=FindingSeverity.HIGH,
+                        category=FindingCategory.CRYPTOGRAPHIC_STRENGTH,
+                        description=f"Server certificate is not valid before {cert_details.not_before} (reference timestamp: {cert_details.validity_reference_time}).",
+                        evidence_frames=cert_frames,
+                        recommendation="Verify server clock synchronization and certificate validity timeframe.",
+                        explanation=FindingExplanation(
+                            finding_id="FINDING-CERTIFICATE-NOT-YET-VALID",
+                            rule_id="RULE-CERT-NOT-YET-VALID",
+                            why_triggered=f"Server certificate is not yet valid (notBefore: {cert_details.not_before}).",
+                            evidence=[
+                                FindingEvidenceItem(
+                                    type="CERTIFICATE_VALIDITY",
+                                    frame=cert_details.frame_number,
+                                    field="not_before",
+                                    observed_value=str(cert_details.not_before)
+                                )
+                            ],
+                            confidence_boundary="Direct parsing of observable X.509 Validity.notBefore field against session reference time.",
+                            standards_refs=["RFC 5280"]
+                        )
+                    ))
+
+                # 7c. Weak RSA Key Size (< 2048 bits)
+                if (
+                    cert_details.public_key_bits is not None
+                    and cert_details.public_key_bits < 2048
+                    and (not cert_details.public_key_algorithm or "rsa" in cert_details.public_key_algorithm.lower())
+                ):
+                    findings.append(SecurityFinding(
+                        id="FINDING-CERTIFICATE-WEAK-RSA",
+                        title=f"Weak RSA Certificate Key Length ({cert_details.public_key_bits} bits)",
+                        severity=FindingSeverity.HIGH,
+                        category=FindingCategory.CRYPTOGRAPHIC_STRENGTH,
+                        description=f"Server certificate uses an insecure RSA key length of {cert_details.public_key_bits} bits. Industry baseline is 2048 bits minimum (NIST SP 800-57).",
+                        evidence_frames=cert_frames,
+                        recommendation="Re-issue certificate with a minimum 2048-bit RSA key or 256-bit ECDSA key.",
+                        explanation=FindingExplanation(
+                            finding_id="FINDING-CERTIFICATE-WEAK-RSA",
+                            rule_id="RULE-CERT-WEAK-RSA",
+                            why_triggered=f"Certificate uses {cert_details.public_key_bits}-bit RSA key, below the 2048-bit minimum threshold.",
+                            evidence=[
+                                FindingEvidenceItem(
+                                    type="CERTIFICATE_KEY",
+                                    frame=cert_details.frame_number,
+                                    field="public_key_bits",
+                                    observed_value=str(cert_details.public_key_bits)
+                                )
+                            ],
+                            confidence_boundary="Observable SubjectPublicKeyInfo modulus bit length.",
+                            standards_refs=["NIST SP 800-57", "RFC 5280"]
+                        )
+                    ))
+
+                # 7d. Deprecated Signature Algorithm (MD5 / SHA-1)
+                if cert_details.signature_algorithm:
+                    sig_lower = cert_details.signature_algorithm.lower()
+                    if "md5" in sig_lower or "md2" in sig_lower:
+                        findings.append(SecurityFinding(
+                            id="FINDING-CERTIFICATE-DEPRECATED-SIG",
+                            title=f"Insecure Certificate Signature Algorithm ({cert_details.signature_algorithm})",
+                            severity=FindingSeverity.CRITICAL,
+                            category=FindingCategory.CRYPTOGRAPHIC_STRENGTH,
+                            description=f"Server certificate was signed using broken MD5 hash algorithm ({cert_details.signature_algorithm}), vulnerable to collision attacks.",
+                            evidence_frames=cert_frames,
+                            recommendation="Re-issue certificate with modern SHA-256 or SHA-384 signature algorithm.",
+                            explanation=FindingExplanation(
+                                finding_id="FINDING-CERTIFICATE-DEPRECATED-SIG",
+                                rule_id="RULE-CERT-DEPRECATED-SIG",
+                                why_triggered=f"Certificate signature algorithm uses broken hash ({cert_details.signature_algorithm}).",
+                                evidence=[
+                                    FindingEvidenceItem(
+                                        type="CERTIFICATE_SIGNATURE",
+                                        frame=cert_details.frame_number,
+                                        field="signature_algorithm",
+                                        observed_value=cert_details.signature_algorithm
+                                    )
+                                ],
+                                confidence_boundary="Observable X.509 signatureAlgorithm OID dissection.",
+                                standards_refs=["RFC 6151", "RFC 5280"]
+                            )
+                        ))
+                    elif "sha1" in sig_lower or "sha-1" in sig_lower:
+                        findings.append(SecurityFinding(
+                            id="FINDING-CERTIFICATE-DEPRECATED-SIG",
+                            title=f"Deprecated Certificate Signature Algorithm ({cert_details.signature_algorithm})",
+                            severity=FindingSeverity.HIGH,
+                            category=FindingCategory.CRYPTOGRAPHIC_STRENGTH,
+                            description=f"Server certificate was signed using deprecated SHA-1 hash algorithm ({cert_details.signature_algorithm}).",
+                            evidence_frames=cert_frames,
+                            recommendation="Re-issue certificate with modern SHA-256 or SHA-384 signature algorithm.",
+                            explanation=FindingExplanation(
+                                finding_id="FINDING-CERTIFICATE-DEPRECATED-SIG",
+                                rule_id="RULE-CERT-DEPRECATED-SIG",
+                                why_triggered=f"Certificate signature algorithm uses deprecated SHA-1 ({cert_details.signature_algorithm}).",
+                                evidence=[
+                                    FindingEvidenceItem(
+                                        type="CERTIFICATE_SIGNATURE",
+                                        frame=cert_details.frame_number,
+                                        field="signature_algorithm",
+                                        observed_value=cert_details.signature_algorithm
+                                    )
+                                ],
+                                confidence_boundary="Observable X.509 signatureAlgorithm OID dissection.",
+                                standards_refs=["RFC 9155", "RFC 5280"]
+                            )
+                        ))
+
+                # 7e. Cryptographically Self-Signed vs Self-Issued
+                if cert_details.self_signed is True:
+                    findings.append(SecurityFinding(
+                        id="FINDING-CERTIFICATE-SELF-SIGNED",
+                        title="Cryptographically Self-Signed X.509 Certificate",
+                        severity=FindingSeverity.MEDIUM,
+                        category=FindingCategory.CRYPTOGRAPHIC_STRENGTH,
+                        description=f"Server certificate is cryptographically self-signed (signature verified using its own public key; Subject matches Issuer: {cert_details.subject or 'Unknown'}). May be expected for internal staging/test systems, but requires manual trust verification in production.",
+                        evidence_frames=cert_frames,
+                        recommendation="Deploy certificates issued by a recognized public or enterprise Certificate Authority (CA).",
+                        explanation=FindingExplanation(
+                            finding_id="FINDING-CERTIFICATE-SELF-SIGNED",
+                            rule_id="RULE-CERT-SELF-SIGNED",
+                            why_triggered="Certificate signature cryptographically verified using its own public key.",
+                            evidence=[
+                                FindingEvidenceItem(
+                                    type="CERTIFICATE_IDENTITY",
+                                    frame=cert_details.frame_number,
+                                    field="self_signature_verified",
+                                    observed_value="True"
+                                )
+                            ],
+                            confidence_boundary="Cryptographic public-key signature verification.",
+                            standards_refs=["RFC 5280"]
+                        )
+                    ))
+                elif cert_details.self_issued is True:
+                    findings.append(SecurityFinding(
+                        id="FINDING-CERTIFICATE-SELF-ISSUED",
+                        title="Self-Issued X.509 Server Certificate",
+                        severity=FindingSeverity.LOW,
+                        category=FindingCategory.CRYPTOGRAPHIC_STRENGTH,
+                        description=f"Server certificate appears self-issued (Subject matches Issuer: {cert_details.subject or 'Unknown'}). Cryptographic self-signature verification was not performed or raw signature bytes were unavailable.",
+                        evidence_frames=cert_frames,
+                        recommendation="Deploy certificates issued by a recognized public or enterprise Certificate Authority (CA).",
+                        explanation=FindingExplanation(
+                            finding_id="FINDING-CERTIFICATE-SELF-ISSUED",
+                            rule_id="RULE-CERT-SELF-ISSUED",
+                            why_triggered="Subject and Issuer DNs are identical, but self-signature was not cryptographically verified.",
+                            evidence=[
+                                FindingEvidenceItem(
+                                    type="CERTIFICATE_IDENTITY",
+                                    frame=cert_details.frame_number,
+                                    field="self_issued",
+                                    observed_value="True"
+                                )
+                            ],
+                            confidence_boundary="Direct comparison of observable Subject and Issuer Distinguished Names.",
+                            standards_refs=["RFC 5280"]
+                        )
+                    ))
+
         # ----------------------------------------------------------
         # OVERALL SECURITY GRADE CALCULATION
         # ----------------------------------------------------------

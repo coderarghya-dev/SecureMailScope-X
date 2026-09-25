@@ -136,6 +136,49 @@ class CipherSuiteInfo:
     is_post_quantum_safe: bool = False
 
 
+class CertificateVisibility(str, Enum):
+    OBSERVABLE = "OBSERVABLE"
+    UNOBSERVABLE_ENCRYPTED = "UNOBSERVABLE_ENCRYPTED"
+    NOT_PRESENT = "NOT_PRESENT"
+    INCOMPLETE = "INCOMPLETE"
+    UNKNOWN = "UNKNOWN"
+
+
+class CertificateValidityStatus(str, Enum):
+    VALID = "VALID"
+    EXPIRED = "EXPIRED"
+    NOT_YET_VALID = "NOT_YET_VALID"
+    UNKNOWN = "UNKNOWN"
+
+
+@dataclass
+class CertificateDetails:
+    """Detailed X.509 certificate evidence and visibility analysis."""
+    visibility: CertificateVisibility = CertificateVisibility.UNKNOWN
+    frame_number: Optional[int] = None
+    subject: Optional[str] = None
+    issuer: Optional[str] = None
+    serial_number: Optional[str] = None
+    not_before: Optional[str] = None
+    not_after: Optional[str] = None
+    validity_status: CertificateValidityStatus = CertificateValidityStatus.UNKNOWN
+    days_until_expiry: Optional[int] = None
+    validity_reference_time: Optional[str] = None
+    reference_time_source: str = "CAPTURE_TIMESTAMP"
+    self_issued: Optional[bool] = None
+    self_signature_verified: Optional[bool] = None
+    self_signed: Optional[bool] = None
+    signature_algorithm: Optional[str] = None
+    public_key_algorithm: Optional[str] = None
+    public_key_bits: Optional[int] = None
+    certificate_fingerprint_sha256: Optional[str] = None
+    san_names: List[str] = field(default_factory=list)
+    chain_length: int = 0
+    chain_observed: bool = False
+    chain_trust_status: str = "NOT_VALIDATED"
+    analysis_limitations: List[str] = field(default_factory=list)
+
+
 @dataclass
 class TLSHandshakeDetails:
     """Observed TLS handshake forensic facts."""
@@ -164,7 +207,7 @@ class TLSHandshakeDetails:
     server_hello_frame: Optional[int] = None
     server_hello_time: Optional[float] = None
     
-    # Certificate visibility (TLS 1.3 hides certs passively)
+    # Certificate visibility & structured analysis
     certificate_visibility: str = "Unavailable from passive capture"
     certificate_count: int = 0
     certificate_subjects: List[str] = field(default_factory=list)
@@ -176,6 +219,8 @@ class TLSHandshakeDetails:
     certificate_key_size: Optional[int] = None
     certificate_sig_alg: Optional[str] = None
     certificate_fingerprint_sha256: Optional[str] = None
+    certificate_der_bytes: Optional[bytes] = None
+    certificate_details: Optional[CertificateDetails] = None
 
 
 @dataclass

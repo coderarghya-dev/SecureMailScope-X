@@ -42,7 +42,8 @@ from app.schemas.api import (
     PacketEvidenceDTO,
     MLTriageDTO,
     CorrelatedIncidentDTO,
-    MultiSessionSummaryDTO
+    MultiSessionSummaryDTO,
+    CertificateDetailsDTO
 )
 from app.ml.risk_classifier import MLRiskClassifier
 
@@ -218,6 +219,35 @@ class AnalysisService:
                         is_post_quantum_safe=ci.is_post_quantum_safe
                     )
 
+                cert_dto = None
+                if s.tls_details.certificate_details:
+                    cd = s.tls_details.certificate_details
+                    cert_dto = CertificateDetailsDTO(
+                        visibility=cd.visibility.value if hasattr(cd.visibility, "value") else str(cd.visibility),
+                        frame_number=cd.frame_number,
+                        subject=cd.subject,
+                        issuer=cd.issuer,
+                        serial_number=cd.serial_number,
+                        not_before=cd.not_before,
+                        not_after=cd.not_after,
+                        validity_status=cd.validity_status.value if hasattr(cd.validity_status, "value") else str(cd.validity_status),
+                        days_until_expiry=cd.days_until_expiry,
+                        validity_reference_time=cd.validity_reference_time,
+                        reference_time_source=cd.reference_time_source,
+                        self_issued=cd.self_issued,
+                        self_signature_verified=cd.self_signature_verified,
+                        self_signed=cd.self_signed,
+                        signature_algorithm=cd.signature_algorithm,
+                        public_key_algorithm=cd.public_key_algorithm,
+                        public_key_bits=cd.public_key_bits,
+                        certificate_fingerprint_sha256=cd.certificate_fingerprint_sha256,
+                        san_names=cd.san_names,
+                        chain_length=cd.chain_length,
+                        chain_observed=cd.chain_observed,
+                        chain_trust_status=cd.chain_trust_status,
+                        analysis_limitations=cd.analysis_limitations
+                    )
+
                 tls_dto = TLSHandshakeDTO(
                     negotiated_version=s.tls_details.negotiated_tls_version.value,
                     tls_version=s.tls_details.negotiated_tls_version.value,
@@ -232,7 +262,8 @@ class AnalysisService:
                     alpn=s.tls_details.alpn,
                     client_hello_frame=s.tls_details.client_hello_frame,
                     server_hello_frame=s.tls_details.server_hello_frame,
-                    certificate_visibility=s.tls_details.certificate_visibility
+                    certificate_visibility=s.tls_details.certificate_visibility,
+                    certificate_details=cert_dto
                 )
 
             # Health
@@ -360,7 +391,8 @@ class AnalysisService:
                 evidence_confidence=conf_dto,
                 security_assessment=sec_dto,
                 evidence_frames=evidence_frames_dtos,
-                ml_triage=ml_triage_dto
+                ml_triage=ml_triage_dto,
+                certificate_details=cert_dto
             ))
 
         primary_conf_score = session_dtos[0].evidence_confidence.score if session_dtos else 95
