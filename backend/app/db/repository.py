@@ -642,8 +642,9 @@ class ForensicRepository:
                     INSERT OR IGNORE INTO custody_events (
                         event_id, analysis_id, timestamp_utc, event_type,
                         artifact_hash, previous_event_hash, current_event_hash,
-                        details, sequence_order
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        details, sequence_order, actor_id, actor_display_name,
+                        actor_identity_source, actor_attribution_status, hash_format_version
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         ev.event_id,
@@ -655,6 +656,11 @@ class ForensicRepository:
                         ev.current_event_hash,
                         ev.details,
                         idx,
+                        getattr(ev, "actor_id", "SYSTEM") or "SYSTEM",
+                        getattr(ev, "actor_display_name", "SecureMailScope X") or "SecureMailScope X",
+                        getattr(ev, "actor_identity_source", "SYSTEM") or "SYSTEM",
+                        getattr(ev, "actor_attribution_status", "SYSTEM_GENERATED") or "SYSTEM_GENERATED",
+                        getattr(ev, "hash_format_version", "CUSTODY_EVENT_HASH_V2") or "CUSTODY_EVENT_HASH_V2",
                     )
                 )
 
@@ -687,15 +693,21 @@ class ForensicRepository:
 
         events = []
         for er in event_rows:
+            er_dict = dict(er)
             events.append(CustodyEventDTO(
-                event_id=er["event_id"],
-                analysis_id=er["analysis_id"],
-                timestamp_utc=er["timestamp_utc"],
-                event_type=er["event_type"],
-                artifact_hash=er["artifact_hash"],
-                previous_event_hash=er["previous_event_hash"],
-                current_event_hash=er["current_event_hash"],
-                details=er["details"],
+                event_id=er_dict["event_id"],
+                analysis_id=er_dict["analysis_id"],
+                timestamp_utc=er_dict["timestamp_utc"],
+                event_type=er_dict["event_type"],
+                artifact_hash=er_dict["artifact_hash"],
+                previous_event_hash=er_dict["previous_event_hash"],
+                current_event_hash=er_dict["current_event_hash"],
+                details=er_dict.get("details"),
+                actor_id=er_dict.get("actor_id", "SYSTEM") or "SYSTEM",
+                actor_display_name=er_dict.get("actor_display_name", "SecureMailScope X") or "SecureMailScope X",
+                actor_identity_source=er_dict.get("actor_identity_source", "SYSTEM") or "SYSTEM",
+                actor_attribution_status=er_dict.get("actor_attribution_status", "SYSTEM_GENERATED") or "SYSTEM_GENERATED",
+                hash_format_version=er_dict.get("hash_format_version", "CUSTODY_EVENT_HASH_V2") or "CUSTODY_EVENT_HASH_V2",
             ))
 
         manifest = json.loads(rec_row["manifest_dict_json"]) if rec_row["manifest_dict_json"] else None
@@ -716,6 +728,608 @@ class ForensicRepository:
             "is_sealed": bool(rec_row["is_sealed"]),
             "overall_status": rec_row["overall_status"],
             "events": events,
+        }
+
+    # -----------------------------------------------------------------------
+    # 2b. Immutable Custody Manifest Versioning & Report Artifacts (Phase 13)
+    # -----------------------------------------------------------------------
+    @classmethod
+    def save_manifest_version(
+        cls,
+        manifest_version_id: str,
+        analysis_id: str,
+        version_number: int,
+        manifest_type: str,
+        previous_manifest_sha256: str,
+        manifest_json: str,
+        manifest_sha256: str,
+        parent_manifest_version_id: Optional[str] = None,
+        canonicalization_version: str = CANONICALIZATION_VERSION,
+        created_at: Optional[str] = None,
+        actor: Optional[ActorContext] = None,
+        sealed: bool = True,
+        supersedes_version_id: Optional[str] = None,
+        purpose: Optional[str] = None,
+        schema_version: str = CURRENT_SCHEMA_VERSION,
+        db_path: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Persists an append-only immutable custody manifest version."""
+        now_iso = created_at or datetime.now(timezone.utc).isoformat()
+        act = actor or ActorContext.unattributed()
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+
+        try:
+            # Check for existing version
+            cursor.execute(
+                "SELECT sealed FROM custody_manifest_versions WHERE analysis_id = ? AND version_number = ?",
+                (analysis_id, version_number)
+            )
+            existing = cursor.fetchone()
+            if existing:
+                if existing["sealed"]:
+                    raise ImmutableRecordError(
+                        f"Custody manifest version {version_number} for analysis '{analysis_id}' is sealed and immutable."
+                    )
+                raise ImmutableRecordError(
+                    f"Custody manifest version {version_number} already exists for analysis '{analysis_id}'."
+                )
+
+            cursor.execute(
+                """
+                INSERT INTO custody_manifest_versions (
+                    manifest_version_id, analysis_id, version_number, manifest_type,
+                    parent_manifest_version_id, previous_manifest_sha256, manifest_json,
+                    manifest_sha256, canonicalization_version, created_at,
+                    created_by_actor_id, created_by_actor_display_name,
+                    actor_identity_source, actor_attribution_status, sealed,
+                    supersedes_version_id, purpose, schema_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    manifest_version_id,
+                    analysis_id,
+                    version_number,
+                    manifest_type,
+                    parent_manifest_version_id,
+                    previous_manifest_sha256,
+                    manifest_json,
+                    manifest_sha256,
+                    canonicalization_version,
+                    now_iso,
+                    act.actor_id,
+                    act.actor_display_name,
+                    act.actor_identity_source,
+                    act.actor_attribution_status,
+                    1 if sealed else 0,
+                    supersedes_version_id,
+                    purpose,
+                    schema_version,
+                )
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+        return {
+            "manifest_version_id": manifest_version_id,
+            "analysis_id": analysis_id,
+            "version_number": version_number,
+            "manifest_type": manifest_type,
+            "parent_manifest_version_id": parent_manifest_version_id,
+            "previous_manifest_sha256": previous_manifest_sha256,
+            "manifest_json": manifest_json,
+            "manifest_sha256": manifest_sha256,
+            "canonicalization_version": canonicalization_version,
+            "created_at": now_iso,
+            "created_by_actor_id": act.actor_id,
+            "created_by_actor_display_name": act.actor_display_name,
+            "actor_identity_source": act.actor_identity_source,
+            "actor_attribution_status": act.actor_attribution_status,
+            "sealed": sealed,
+            "supersedes_version_id": supersedes_version_id,
+            "purpose": purpose,
+            "schema_version": schema_version,
+        }
+
+    @classmethod
+    def get_manifest_versions(cls, analysis_id: str, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Retrieves all immutable manifest versions for an analysis in ascending order."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT * FROM custody_manifest_versions
+            WHERE analysis_id = ?
+            ORDER BY version_number ASC
+            """,
+            (analysis_id,)
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        results = []
+        for r in rows:
+            m_dict = None
+            if r["manifest_json"]:
+                try:
+                    m_dict = json.loads(r["manifest_json"])
+                except Exception:
+                    pass
+            linked_artifacts = []
+            if m_dict and isinstance(m_dict, dict):
+                linked_artifacts = m_dict.get("linked_report_artifacts", [])
+
+            results.append({
+                "manifest_version_id": r["manifest_version_id"],
+                "analysis_id": r["analysis_id"],
+                "version_number": r["version_number"],
+                "manifest_type": r["manifest_type"],
+                "parent_manifest_version_id": r["parent_manifest_version_id"],
+                "previous_manifest_sha256": r["previous_manifest_sha256"],
+                "manifest_json": r["manifest_json"],
+                "manifest_dict": m_dict,
+                "manifest_sha256": r["manifest_sha256"],
+                "canonicalization_version": r["canonicalization_version"],
+                "created_at": r["created_at"],
+                "created_by_actor_id": r["created_by_actor_id"],
+                "created_by_actor_display_name": r["created_by_actor_display_name"],
+                "actor_identity_source": r["actor_identity_source"],
+                "actor_attribution_status": r["actor_attribution_status"],
+                "sealed": bool(r["sealed"]),
+                "supersedes_version_id": r["supersedes_version_id"],
+                "purpose": r["purpose"],
+                "schema_version": r["schema_version"],
+                "linked_report_artifacts": linked_artifacts,
+            })
+        return results
+
+    @classmethod
+    def get_manifest_version(
+        cls,
+        analysis_id: str,
+        version_identifier: Any,
+        db_path: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Retrieves a specific manifest version by version_number or manifest_version_id."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        if isinstance(version_identifier, int) or (isinstance(version_identifier, str) and version_identifier.isdigit()):
+            cursor.execute(
+                "SELECT * FROM custody_manifest_versions WHERE analysis_id = ? AND version_number = ?",
+                (analysis_id, int(version_identifier))
+            )
+        else:
+            cursor.execute(
+                "SELECT * FROM custody_manifest_versions WHERE analysis_id = ? AND (manifest_version_id = ? OR manifest_type = ?)",
+                (analysis_id, str(version_identifier), str(version_identifier))
+            )
+        r = cursor.fetchone()
+        conn.close()
+        if not r:
+            return None
+
+        m_dict = None
+        if r["manifest_json"]:
+            try:
+                m_dict = json.loads(r["manifest_json"])
+            except Exception:
+                pass
+        linked_artifacts = []
+        if m_dict and isinstance(m_dict, dict):
+            linked_artifacts = m_dict.get("linked_report_artifacts", [])
+
+        return {
+            "manifest_version_id": r["manifest_version_id"],
+            "analysis_id": r["analysis_id"],
+            "version_number": r["version_number"],
+            "manifest_type": r["manifest_type"],
+            "parent_manifest_version_id": r["parent_manifest_version_id"],
+            "previous_manifest_sha256": r["previous_manifest_sha256"],
+            "manifest_json": r["manifest_json"],
+            "manifest_dict": m_dict,
+            "manifest_sha256": r["manifest_sha256"],
+            "canonicalization_version": r["canonicalization_version"],
+            "created_at": r["created_at"],
+            "created_by_actor_id": r["created_by_actor_id"],
+            "created_by_actor_display_name": r["created_by_actor_display_name"],
+            "actor_identity_source": r["actor_identity_source"],
+            "actor_attribution_status": r["actor_attribution_status"],
+            "sealed": bool(r["sealed"]),
+            "supersedes_version_id": r["supersedes_version_id"],
+            "purpose": r["purpose"],
+            "schema_version": r["schema_version"],
+            "linked_report_artifacts": linked_artifacts,
+        }
+
+    @classmethod
+    def get_latest_manifest_version(cls, analysis_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Retrieves the latest manifest version for an analysis."""
+        versions = cls.get_manifest_versions(analysis_id, db_path=db_path)
+        return versions[-1] if versions else None
+
+    @classmethod
+    def save_report_artifact_and_manifest_version(
+        cls,
+        report_artifact: Dict[str, Any],
+        manifest_version: Dict[str, Any],
+        db_path: Optional[str] = None,
+        inject_failure_after_artifact: bool = False
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """
+        Atomically persists a report artifact and its associated new manifest version.
+        Rolls back both if either operation fails or if manifest version is invalid.
+        """
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+
+        try:
+            # 1. Supersede previous active report artifacts for this analysis
+            cursor.execute(
+                """
+                UPDATE report_artifacts
+                SET status = 'SUPERSEDED'
+                WHERE analysis_id = ? AND status = 'GENERATED'
+                """,
+                (report_artifact["analysis_id"],)
+            )
+
+            # 2. Insert new report artifact
+            cursor.execute(
+                """
+                INSERT INTO report_artifacts (
+                    report_artifact_id, analysis_id, report_type, report_version,
+                    filename, media_type, artifact_sha256, artifact_size_bytes,
+                    file_path, raw_bytes, generated_at, generated_by_actor_id,
+                    generated_by_actor_display_name, actor_identity_source,
+                    actor_attribution_status, generator_version,
+                    source_manifest_version_id, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    report_artifact["report_artifact_id"],
+                    report_artifact["analysis_id"],
+                    report_artifact.get("report_type", "PDF"),
+                    report_artifact.get("report_version", 1),
+                    report_artifact["filename"],
+                    report_artifact.get("media_type", "application/pdf"),
+                    report_artifact["artifact_sha256"],
+                    report_artifact["artifact_size_bytes"],
+                    report_artifact.get("file_path"),
+                    report_artifact.get("raw_bytes"),
+                    report_artifact["generated_at"],
+                    report_artifact.get("generated_by_actor_id", "SYSTEM"),
+                    report_artifact.get("generated_by_actor_display_name", "SecureMailScope X"),
+                    report_artifact.get("actor_identity_source", "SYSTEM"),
+                    report_artifact.get("actor_attribution_status", "SYSTEM_GENERATED"),
+                    report_artifact.get("generator_version", CURRENT_ANALYZER_VERSION),
+                    report_artifact["source_manifest_version_id"],
+                    report_artifact.get("status", "GENERATED"),
+                )
+            )
+
+            if inject_failure_after_artifact:
+                raise RuntimeError("Injected transaction failure after report artifact insertion.")
+
+            # 3. Check if manifest version already exists
+            cursor.execute(
+                "SELECT sealed FROM custody_manifest_versions WHERE analysis_id = ? AND version_number = ?",
+                (manifest_version["analysis_id"], manifest_version["version_number"])
+            )
+            existing = cursor.fetchone()
+            if existing:
+                raise ImmutableRecordError(
+                    f"Custody manifest version {manifest_version['version_number']} for analysis '{manifest_version['analysis_id']}' already exists."
+                )
+
+            # 4. Insert new manifest version
+            cursor.execute(
+                """
+                INSERT INTO custody_manifest_versions (
+                    manifest_version_id, analysis_id, version_number, manifest_type,
+                    parent_manifest_version_id, previous_manifest_sha256, manifest_json,
+                    manifest_sha256, canonicalization_version, created_at,
+                    created_by_actor_id, created_by_actor_display_name,
+                    actor_identity_source, actor_attribution_status, sealed,
+                    supersedes_version_id, purpose, schema_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    manifest_version["manifest_version_id"],
+                    manifest_version["analysis_id"],
+                    manifest_version["version_number"],
+                    manifest_version["manifest_type"],
+                    manifest_version.get("parent_manifest_version_id"),
+                    manifest_version["previous_manifest_sha256"],
+                    manifest_version["manifest_json"],
+                    manifest_version["manifest_sha256"],
+                    manifest_version.get("canonicalization_version", CANONICALIZATION_VERSION),
+                    manifest_version["created_at"],
+                    manifest_version.get("created_by_actor_id", "UNATTRIBUTED"),
+                    manifest_version.get("created_by_actor_display_name", "Unattributed Analyst"),
+                    manifest_version.get("actor_identity_source", "UNKNOWN"),
+                    manifest_version.get("actor_attribution_status", "UNATTRIBUTED"),
+                    1 if manifest_version.get("sealed", True) else 0,
+                    manifest_version.get("supersedes_version_id"),
+                    manifest_version.get("purpose"),
+                    manifest_version.get("schema_version", CURRENT_SCHEMA_VERSION),
+                )
+            )
+
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+        return report_artifact, manifest_version
+
+    @classmethod
+    def get_report_artifacts(cls, analysis_id: str, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Retrieves all report artifacts for an analysis ordered by version."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT * FROM report_artifacts
+            WHERE analysis_id = ?
+            ORDER BY report_version ASC
+            """,
+            (analysis_id,)
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        results = []
+        for r in rows:
+            results.append({
+                "report_artifact_id": r["report_artifact_id"],
+                "analysis_id": r["analysis_id"],
+                "report_type": r["report_type"],
+                "report_version": r["report_version"],
+                "filename": r["filename"],
+                "media_type": r["media_type"],
+                "artifact_sha256": r["artifact_sha256"],
+                "artifact_size_bytes": r["artifact_size_bytes"],
+                "file_path": r["file_path"],
+                "raw_bytes": r["raw_bytes"],
+                "generated_at": r["generated_at"],
+                "generated_by_actor_id": r["generated_by_actor_id"],
+                "generated_by_actor_display_name": r["generated_by_actor_display_name"],
+                "actor_identity_source": r["actor_identity_source"],
+                "actor_attribution_status": r["actor_attribution_status"],
+                "generator_version": r["generator_version"],
+                "source_manifest_version_id": r["source_manifest_version_id"],
+                "status": r["status"],
+            })
+        return results
+
+    @classmethod
+    def get_report_artifact(cls, report_artifact_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Retrieves a specific report artifact by ID."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM report_artifacts WHERE report_artifact_id = ?",
+            (report_artifact_id,)
+        )
+        r = cursor.fetchone()
+        conn.close()
+        if not r:
+            return None
+
+        return {
+            "report_artifact_id": r["report_artifact_id"],
+            "analysis_id": r["analysis_id"],
+            "report_type": r["report_type"],
+            "report_version": r["report_version"],
+            "filename": r["filename"],
+            "media_type": r["media_type"],
+            "artifact_sha256": r["artifact_sha256"],
+            "artifact_size_bytes": r["artifact_size_bytes"],
+            "file_path": r["file_path"],
+            "raw_bytes": r["raw_bytes"],
+            "generated_at": r["generated_at"],
+            "generated_by_actor_id": r["generated_by_actor_id"],
+            "generated_by_actor_display_name": r["generated_by_actor_display_name"],
+            "actor_identity_source": r["actor_identity_source"],
+            "actor_attribution_status": r["actor_attribution_status"],
+            "generator_version": r["generator_version"],
+            "source_manifest_version_id": r["source_manifest_version_id"],
+            "status": r["status"],
+        }
+
+    @classmethod
+    def verify_manifest_chain(
+        cls,
+        analysis_id: str,
+        db_path: Optional[str] = None,
+        verify_report_files: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Pure read-only verification of manifest versions, hash-chaining,
+        payload integrity, capture consistency, observed result consistency,
+        and report artifact byte seals.
+        Side effects: ZERO (does not write to DB or append audit events).
+        """
+        manifest_versions = cls.get_manifest_versions(analysis_id, db_path=db_path)
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        if not manifest_versions:
+            # Check legacy custody record
+            legacy = cls.get_custody_record(analysis_id, db_path=db_path)
+            if legacy and legacy.get("manifest_dict") and legacy.get("manifest_hash"):
+                # Verify legacy manifest
+                canonical_bytes = canonical_json_bytes(legacy["manifest_dict"])
+                rec_hash = compute_sha256(canonical_bytes)
+                if rec_hash == legacy["manifest_hash"]:
+                    return {
+                        "analysis_id": analysis_id,
+                        "overall_status": "VERIFIED",
+                        "versions_count": 1,
+                        "versions_verified": [{
+                            "version_number": 1,
+                            "manifest_type": "LEGACY_SINGLE_MANIFEST",
+                            "manifest_sha256": legacy["manifest_hash"],
+                            "status": "VERIFIED",
+                        }],
+                        "verification_timestamp_utc": now_iso,
+                        "details": "Legacy single manifest verified nominal.",
+                    }
+                else:
+                    return {
+                        "analysis_id": analysis_id,
+                        "overall_status": "INTEGRITY_FAILED",
+                        "versions_count": 1,
+                        "versions_verified": [{
+                            "version_number": 1,
+                            "manifest_type": "LEGACY_SINGLE_MANIFEST",
+                            "manifest_sha256": legacy["manifest_hash"],
+                            "status": "INTEGRITY_FAILED",
+                        }],
+                        "verification_timestamp_utc": now_iso,
+                        "details": f"Legacy manifest seal mismatch: expected {legacy['manifest_hash']}, got {rec_hash}",
+                    }
+
+            return {
+                "analysis_id": analysis_id,
+                "overall_status": "INCOMPLETE",
+                "versions_count": 0,
+                "versions_verified": [],
+                "verification_timestamp_utc": now_iso,
+                "details": f"No custody manifest versions found for analysis '{analysis_id}'.",
+            }
+
+        failure_reasons: List[str] = []
+        verified_versions_info: List[Dict[str, Any]] = []
+        overall_status = "VERIFIED"
+        first_capture_sha256: Optional[str] = None
+        first_observed_sha256: Optional[str] = None
+
+        genesis_hash = "0" * 64
+
+        for idx, v in enumerate(manifest_versions):
+            v_num = v["version_number"]
+            v_status = "VERIFIED"
+            v_reasons: List[str] = []
+
+            # 1. Monotonic version numbering check
+            expected_v_num = idx + 1
+            if v_num != expected_v_num:
+                v_status = "INTEGRITY_FAILED"
+                v_reasons.append(f"Non-monotonic version number: expected {expected_v_num}, found {v_num}")
+
+            # 2. Canonical JSON payload recomputation & SHA-256 match
+            manifest_json_raw = v["manifest_json"]
+            manifest_dict = v["manifest_dict"]
+
+            if manifest_dict is not None:
+                # Re-canonicalize the dictionary to test deterministic encoding
+                recomputed_canon_bytes = canonical_json_bytes(manifest_dict)
+                recomputed_sha256 = compute_sha256(recomputed_canon_bytes)
+            else:
+                recomputed_sha256 = compute_sha256(manifest_json_raw.encode("utf-8"))
+
+            if recomputed_sha256 != v["manifest_sha256"]:
+                v_status = "INTEGRITY_FAILED"
+                v_reasons.append(
+                    f"Manifest version {v_num} SHA-256 seal mismatch: expected {v['manifest_sha256']}, got {recomputed_sha256}"
+                )
+
+            # 3. Hash Chaining check
+            expected_prev_hash = genesis_hash if idx == 0 else manifest_versions[idx - 1]["manifest_sha256"]
+            if v["previous_manifest_sha256"] != expected_prev_hash:
+                v_status = "INTEGRITY_FAILED"
+                v_reasons.append(
+                    f"Manifest version {v_num} previous hash link broken: expected {expected_prev_hash}, got {v['previous_manifest_sha256']}"
+                )
+
+            # 4. Invariant checks across versions: capture_sha256 & observed_result_sha256
+            if manifest_dict:
+                cap_sha = manifest_dict.get("capture_sha256")
+                obs_sha = manifest_dict.get("observed_result_sha256")
+
+                if first_capture_sha256 is None and cap_sha:
+                    first_capture_sha256 = cap_sha
+                elif cap_sha and cap_sha != first_capture_sha256:
+                    v_status = "INTEGRITY_FAILED"
+                    v_reasons.append(f"Capture SHA-256 mutated across versions: {cap_sha} != {first_capture_sha256}")
+
+                if first_observed_sha256 is None and obs_sha:
+                    first_observed_sha256 = obs_sha
+                elif obs_sha and obs_sha != first_observed_sha256:
+                    v_status = "INTEGRITY_FAILED"
+                    v_reasons.append(f"Observed result SHA-256 mutated across versions: {obs_sha} != {first_observed_sha256}")
+
+            # 5. Linked Report Artifacts check
+            linked_artifacts = v.get("linked_report_artifacts") or []
+            for art in linked_artifacts:
+                art_id = art.get("report_artifact_id")
+                expected_art_hash = art.get("artifact_sha256")
+
+                db_art = cls.get_report_artifact(art_id, db_path=db_path) if art_id else None
+                if not db_art:
+                    if v_status != "INTEGRITY_FAILED":
+                        v_status = "INCOMPLETE"
+                    v_reasons.append(f"Linked report artifact '{art_id}' not found in database.")
+                else:
+                    if expected_art_hash and db_art["artifact_sha256"] != expected_art_hash:
+                        v_status = "INTEGRITY_FAILED"
+                        v_reasons.append(
+                            f"Linked report artifact '{art_id}' hash mismatch in metadata: {db_art['artifact_sha256']} != {expected_art_hash}"
+                        )
+
+                    if verify_report_files:
+                        art_bytes = db_art.get("raw_bytes")
+                        if art_bytes is None and db_art.get("file_path") and os.path.isfile(db_art["file_path"]):
+                            try:
+                                with open(db_art["file_path"], "rb") as f:
+                                    art_bytes = f.read()
+                            except Exception:
+                                art_bytes = None
+
+                        if art_bytes is not None:
+                            byte_hash = compute_sha256(art_bytes)
+                            if byte_hash != db_art["artifact_sha256"]:
+                                v_status = "INTEGRITY_FAILED"
+                                v_reasons.append(
+                                    f"Report artifact '{art_id}' byte content tampered: expected {db_art['artifact_sha256']}, got {byte_hash}"
+                                )
+                        else:
+                            if v_status != "INTEGRITY_FAILED":
+                                v_status = "INCOMPLETE"
+                            v_reasons.append(f"Report artifact '{art_id}' raw bytes / file missing.")
+
+            # Update overall status
+            if v_status == "INTEGRITY_FAILED":
+                overall_status = "INTEGRITY_FAILED"
+            elif v_status == "INCOMPLETE" and overall_status != "INTEGRITY_FAILED":
+                overall_status = "INCOMPLETE"
+
+            failure_reasons.extend(v_reasons)
+            verified_versions_info.append({
+                "manifest_version_id": v["manifest_version_id"],
+                "version_number": v_num,
+                "manifest_type": v["manifest_type"],
+                "manifest_sha256": v["manifest_sha256"],
+                "previous_manifest_sha256": v["previous_manifest_sha256"],
+                "status": v_status,
+                "reasons": v_reasons,
+            })
+
+        details = "All manifest versions and report artifacts verified nominal." if overall_status == "VERIFIED" else "; ".join(failure_reasons)
+
+        return {
+            "analysis_id": analysis_id,
+            "overall_status": overall_status,
+            "versions_count": len(manifest_versions),
+            "versions_verified": verified_versions_info,
+            "verification_timestamp_utc": now_iso,
+            "details": details,
         }
 
     # -----------------------------------------------------------------------

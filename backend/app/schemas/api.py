@@ -553,6 +553,7 @@ class CustodyEventDTO(BaseModel):
     actor_display_name: Optional[str] = "SecureMailScope X"
     actor_identity_source: Optional[str] = "SYSTEM"
     actor_attribution_status: Optional[str] = "SYSTEM_GENERATED"
+    hash_format_version: Optional[str] = "CUSTODY_EVENT_HASH_V2"
 
 
 class CaptureIntegrityDTO(BaseModel):
@@ -590,12 +591,69 @@ class CustodyRecordResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# 8. Standard Error Response
+# 8. Manifest Versioning & Report Artifact Schemas (Phase 13)
+# ---------------------------------------------------------------------------
+class ReportArtifactDTO(BaseModel):
+    report_artifact_id: str
+    analysis_id: str
+    report_type: str = "PDF"
+    report_version: int = 1
+    filename: str
+    media_type: str = "application/pdf"
+    artifact_sha256: str
+    artifact_size_bytes: int
+    generated_at: str
+    generated_by_actor_id: str = "SYSTEM"
+    generated_by_actor_display_name: str = "SecureMailScope X"
+    actor_identity_source: str = "SYSTEM"
+    actor_attribution_status: str = "SYSTEM_GENERATED"
+    generator_version: str = "SecureMailScope X 1.0.0"
+    source_manifest_version_id: str
+    status: str = "GENERATED"
+    file_path: Optional[str] = None
+    raw_bytes: Optional[bytes] = None
+
+
+class CustodyManifestVersionDTO(BaseModel):
+    manifest_version_id: str
+    analysis_id: str
+    version_number: int
+    manifest_type: str
+    parent_manifest_version_id: Optional[str] = None
+    previous_manifest_sha256: str
+    manifest_json: str
+    manifest_dict: Optional[Dict[str, Any]] = None
+    manifest_sha256: str
+    canonicalization_version: str = "SECUREMAILSCOPE_CANONICAL_JSON_V1"
+    created_at: str
+    created_by_actor_id: str = "UNATTRIBUTED"
+    created_by_actor_display_name: str = "Unattributed Analyst"
+    actor_identity_source: str = "UNKNOWN"
+    actor_attribution_status: str = "UNATTRIBUTED"
+    sealed: bool = True
+    supersedes_version_id: Optional[str] = None
+    purpose: Optional[str] = None
+    schema_version: str = "1.0"
+    linked_report_artifacts: List[Dict[str, Any]] = []
+
+
+class ManifestChainVerificationResponse(BaseModel):
+    analysis_id: str
+    overall_status: str  # "VERIFIED" | "INTEGRITY_FAILED" | "INCOMPLETE"
+    versions_count: int
+    versions_verified: List[Dict[str, Any]] = []
+    verification_timestamp_utc: str
+    details: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# 9. Standard Error Response
 # ---------------------------------------------------------------------------
 class ErrorResponse(BaseModel):
     status_code: int
     error_code: str
     message: str
     details: Optional[Any] = None
+
 
 

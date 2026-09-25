@@ -142,7 +142,7 @@ class AnalysisService:
             cls._persist_analysis(report, sessions, actor=actor)
 
             # Record Analysis Completion & Seal Manifest
-            CustodyService.record_analysis_completion(analysis_id, report)
+            CustodyService.record_analysis_completion(analysis_id, report, actor=actor)
             return report
         finally:
             # Lifecycle Cleanup: Ensure temporary file is safely purged

@@ -26,6 +26,8 @@ pcap_samples/
 *.pdf
 reports/
 generated_reports/
+backend/data/reports/
+data/reports/
 
 # Local Databases
 *.db

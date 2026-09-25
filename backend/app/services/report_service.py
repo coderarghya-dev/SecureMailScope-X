@@ -250,7 +250,7 @@ class ReportService:
         )
 
     @classmethod
-    def generate_pdf_bytes(cls, analysis: AnalysisDetailResponse) -> bytes:
+    def generate_pdf_bytes(cls, analysis: AnalysisDetailResponse, actor: Optional[Any] = None) -> bytes:
         """
         Renders a clean, high-precision forensic PDF report.
         """
@@ -610,7 +610,7 @@ class ReportService:
         # Record PDF Generation in Forensic Chain of Custody
         try:
             from app.services.custody_service import CustodyService
-            CustodyService.record_report_generation(analysis.analysis_id, pdf_bytes)
+            CustodyService.record_report_generation(analysis.analysis_id, pdf_bytes, actor=actor)
         except Exception:
             pass
             

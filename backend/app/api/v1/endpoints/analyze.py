@@ -2,7 +2,14 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Response, status
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 
-from app.schemas.api import AnalysisDetailResponse, ForensicReportResponse, CustodyRecordResponse
+from app.schemas.api import (
+    AnalysisDetailResponse,
+    ForensicReportResponse,
+    CustodyRecordResponse,
+    CustodyManifestVersionDTO,
+    ReportArtifactDTO,
+    ManifestChainVerificationResponse,
+)
 from app.schemas.identity import ActorContext
 from app.services.analysis_service import AnalysisService
 from app.services.report_service import ReportService
@@ -308,6 +315,154 @@ def tamper_demo_custody(
         return CustodyService.verify_integrity(analysis_id, override_event=(0, tampered_hash))
     else:
         return CustodyService.verify_integrity(analysis_id)
+
+
+# ---------------------------------------------------------------------------
+# Phase 13 Manifest Versioning & Report Artifact Endpoints
+# ---------------------------------------------------------------------------
+@router.get(
+    "/analyses/{analysis_id}/manifests",
+    response_model=List[CustodyManifestVersionDTO],
+    summary="List Custody Manifest Versions",
+    description="Returns the chronological, immutable chain of sealed manifest versions for this analysis."
+)
+@router.get(
+    "/analyze/{analysis_id}/manifests",
+    response_model=List[CustodyManifestVersionDTO],
+    include_in_schema=False
+)
+def list_analysis_manifests(analysis_id: str) -> List[CustodyManifestVersionDTO]:
+    analysis = AnalysisService.get_analysis(analysis_id)
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Analysis '{analysis_id}' not found."
+        )
+    versions = ForensicRepository.get_manifest_versions(analysis_id)
+    return [CustodyManifestVersionDTO(**v) for v in versions]
+
+
+@router.get(
+    "/analyses/{analysis_id}/manifests/verify",
+    response_model=ManifestChainVerificationResponse,
+    summary="Verify Manifest Version Chain & Artifact Integrity",
+    description="Performs read-only tamper and chain verification over all manifest versions and linked report artifacts."
+)
+@router.get(
+    "/analyze/{analysis_id}/manifests/verify",
+    response_model=ManifestChainVerificationResponse,
+    include_in_schema=False
+)
+def verify_analysis_manifest_chain(analysis_id: str) -> ManifestChainVerificationResponse:
+    analysis = AnalysisService.get_analysis(analysis_id)
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Analysis '{analysis_id}' not found."
+        )
+    res = ForensicRepository.verify_manifest_chain(analysis_id)
+    return ManifestChainVerificationResponse(**res)
+
+
+@router.get(
+    "/analyses/{analysis_id}/manifests/{version}",
+    response_model=CustodyManifestVersionDTO,
+    summary="Get Specific Custody Manifest Version",
+    description="Retrieves a specific sealed manifest version by version number or version ID."
+)
+@router.get(
+    "/analyze/{analysis_id}/manifests/{version}",
+    response_model=CustodyManifestVersionDTO,
+    include_in_schema=False
+)
+def get_analysis_manifest_version(analysis_id: str, version: str) -> CustodyManifestVersionDTO:
+    analysis = AnalysisService.get_analysis(analysis_id)
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Analysis '{analysis_id}' not found."
+        )
+    v_data = ForensicRepository.get_manifest_version(analysis_id, version)
+    if not v_data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Manifest version '{version}' for analysis '{analysis_id}' not found."
+        )
+    return CustodyManifestVersionDTO(**v_data)
+
+
+@router.get(
+    "/analyses/{analysis_id}/reports",
+    response_model=List[ReportArtifactDTO],
+    summary="List Report Artifacts",
+    description="Returns the full generation history of report artifacts associated with this analysis."
+)
+@router.get(
+    "/analyze/{analysis_id}/reports",
+    response_model=List[ReportArtifactDTO],
+    include_in_schema=False
+)
+def list_analysis_reports(analysis_id: str) -> List[ReportArtifactDTO]:
+    analysis = AnalysisService.get_analysis(analysis_id)
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Analysis '{analysis_id}' not found."
+        )
+    artifacts = ForensicRepository.get_report_artifacts(analysis_id)
+    return [ReportArtifactDTO(**a) for a in artifacts]
+
+
+@router.get(
+    "/analyses/{analysis_id}/reports/{report_artifact_id}",
+    summary="Get Report Artifact or Download PDF",
+    description="Retrieves report artifact metadata or downloads raw PDF bytes if requested."
+)
+@router.get(
+    "/analyze/{analysis_id}/reports/{report_artifact_id}",
+    include_in_schema=False
+)
+def get_analysis_report_artifact(
+    analysis_id: str,
+    report_artifact_id: str,
+    download: bool = Query(False, description="Whether to download raw PDF binary bytes")
+):
+    analysis = AnalysisService.get_analysis(analysis_id)
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Analysis '{analysis_id}' not found."
+        )
+    art = ForensicRepository.get_report_artifact(report_artifact_id)
+    if not art or art.get("analysis_id") != analysis_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Report artifact '{report_artifact_id}' for analysis '{analysis_id}' not found."
+        )
+
+    if download:
+        pdf_bytes = art.get("raw_bytes")
+        if not pdf_bytes and art.get("file_path") and os.path.isfile(art["file_path"]):
+            with open(art["file_path"], "rb") as f:
+                pdf_bytes = f.read()
+
+        if not pdf_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Report artifact binary bytes for '{report_artifact_id}' not found."
+            )
+
+        return Response(
+            content=pdf_bytes,
+            media_type=art.get("media_type", "application/pdf"),
+            headers={
+                "Content-Disposition": f'attachment; filename="{art["filename"]}"',
+                "Content-Type": art.get("media_type", "application/pdf"),
+            }
+        )
+
+    return ReportArtifactDTO(**art)
+
 
 
 

@@ -129,6 +129,32 @@ def init_db(db_path: Optional[str] = None):
         if "attribution_status" not in existing_cols:
             cursor.execute("ALTER TABLE analyst_notes ADD COLUMN attribution_status TEXT NOT NULL DEFAULT 'ATTRIBUTED';")
 
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='custody_events';")
+    if cursor.fetchone():
+        cursor.execute("PRAGMA table_info(custody_events);")
+        existing_cols = {row["name"] for row in cursor.fetchall()}
+        if "actor_id" not in existing_cols:
+            cursor.execute("ALTER TABLE custody_events ADD COLUMN actor_id TEXT NOT NULL DEFAULT 'SYSTEM';")
+        if "actor_display_name" not in existing_cols:
+            cursor.execute("ALTER TABLE custody_events ADD COLUMN actor_display_name TEXT NOT NULL DEFAULT 'SecureMailScope X';")
+        if "actor_identity_source" not in existing_cols:
+            cursor.execute("ALTER TABLE custody_events ADD COLUMN actor_identity_source TEXT NOT NULL DEFAULT 'SYSTEM';")
+        if "actor_attribution_status" not in existing_cols:
+            cursor.execute("ALTER TABLE custody_events ADD COLUMN actor_attribution_status TEXT NOT NULL DEFAULT 'SYSTEM_GENERATED';")
+        if "hash_format_version" not in existing_cols:
+            cursor.execute("ALTER TABLE custody_events ADD COLUMN hash_format_version TEXT NOT NULL DEFAULT 'LEGACY_PIPE_V1';")
+
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='report_artifacts';")
+    if cursor.fetchone():
+        cursor.execute("PRAGMA table_info(report_artifacts);")
+        existing_cols = {row["name"] for row in cursor.fetchall()}
+        if "generated_by_actor_display_name" not in existing_cols:
+            cursor.execute("ALTER TABLE report_artifacts ADD COLUMN generated_by_actor_display_name TEXT NOT NULL DEFAULT 'SecureMailScope X';")
+        if "actor_identity_source" not in existing_cols:
+            cursor.execute("ALTER TABLE report_artifacts ADD COLUMN actor_identity_source TEXT NOT NULL DEFAULT 'SYSTEM';")
+        if "actor_attribution_status" not in existing_cols:
+            cursor.execute("ALTER TABLE report_artifacts ADD COLUMN actor_attribution_status TEXT NOT NULL DEFAULT 'SYSTEM_GENERATED';")
+
     # 0. Analysts table (Attribution Registry - No credentials or secrets)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS analysts (
@@ -268,6 +294,11 @@ def init_db(db_path: Optional[str] = None):
             current_event_hash TEXT NOT NULL,
             details TEXT,
             sequence_order INTEGER NOT NULL,
+            actor_id TEXT NOT NULL DEFAULT 'SYSTEM',
+            actor_display_name TEXT NOT NULL DEFAULT 'SecureMailScope X',
+            actor_identity_source TEXT NOT NULL DEFAULT 'SYSTEM',
+            actor_attribution_status TEXT NOT NULL DEFAULT 'SYSTEM_GENERATED',
+            hash_format_version TEXT NOT NULL DEFAULT 'CUSTODY_EVENT_HASH_V2',
             FOREIGN KEY (analysis_id) REFERENCES custody_records (analysis_id) ON DELETE RESTRICT
         )
     """)
@@ -436,6 +467,57 @@ def init_db(db_path: Optional[str] = None):
         )
     """)
 
+    # 17. Custody Manifest Versions table (Phase 13 Immutable Versioning)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS custody_manifest_versions (
+            manifest_version_id TEXT PRIMARY KEY,
+            analysis_id TEXT NOT NULL,
+            version_number INTEGER NOT NULL,
+            manifest_type TEXT NOT NULL,
+            parent_manifest_version_id TEXT,
+            previous_manifest_sha256 TEXT NOT NULL,
+            manifest_json TEXT NOT NULL,
+            manifest_sha256 TEXT NOT NULL,
+            canonicalization_version TEXT NOT NULL DEFAULT 'SECUREMAILSCOPE_CANONICAL_JSON_V1',
+            created_at TEXT NOT NULL,
+            created_by_actor_id TEXT NOT NULL DEFAULT 'UNATTRIBUTED',
+            created_by_actor_display_name TEXT NOT NULL DEFAULT 'Unattributed Analyst',
+            actor_identity_source TEXT NOT NULL DEFAULT 'UNKNOWN',
+            actor_attribution_status TEXT NOT NULL DEFAULT 'UNATTRIBUTED',
+            sealed INTEGER NOT NULL DEFAULT 1,
+            supersedes_version_id TEXT,
+            purpose TEXT,
+            schema_version TEXT NOT NULL DEFAULT '1.0',
+            FOREIGN KEY (analysis_id) REFERENCES custody_records (analysis_id) ON DELETE RESTRICT
+        )
+    """)
+
+    # 18. Report Artifacts table (Phase 13 Separate Report Storage & Linkage)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS report_artifacts (
+            report_artifact_id TEXT PRIMARY KEY,
+            analysis_id TEXT NOT NULL,
+            report_type TEXT NOT NULL DEFAULT 'PDF',
+            report_version INTEGER NOT NULL DEFAULT 1,
+            filename TEXT NOT NULL,
+            media_type TEXT NOT NULL DEFAULT 'application/pdf',
+            artifact_sha256 TEXT NOT NULL,
+            artifact_size_bytes INTEGER NOT NULL,
+            file_path TEXT,
+            raw_bytes BLOB,
+            generated_at TEXT NOT NULL,
+            generated_by_actor_id TEXT NOT NULL DEFAULT 'SYSTEM',
+            generated_by_actor_display_name TEXT NOT NULL DEFAULT 'SecureMailScope X',
+            actor_identity_source TEXT NOT NULL DEFAULT 'SYSTEM',
+            actor_attribution_status TEXT NOT NULL DEFAULT 'SYSTEM_GENERATED',
+            generator_version TEXT NOT NULL DEFAULT 'SecureMailScope X 1.0.0',
+            source_manifest_version_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'GENERATED',
+            FOREIGN KEY (analysis_id) REFERENCES custody_records (analysis_id) ON DELETE RESTRICT,
+            FOREIGN KEY (source_manifest_version_id) REFERENCES custody_manifest_versions (manifest_version_id) ON DELETE RESTRICT
+        )
+    """)
+
     # Create Performance Indexes
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_analysis_id ON sessions(analysis_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_findings_analysis_id ON findings(analysis_id);")
@@ -446,6 +528,10 @@ def init_db(db_path: Optional[str] = None):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_case_analyses_analysis ON case_analyses(analysis_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_events_actor ON audit_events(actor_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysts_active ON analysts(is_active);")
+    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_manifest_version_unique ON custody_manifest_versions(analysis_id, version_number);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_manifest_sha ON custody_manifest_versions(manifest_sha256);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_report_artifacts_analysis ON report_artifacts(analysis_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_report_artifacts_sha ON report_artifacts(artifact_sha256);")
 
     conn.commit()
     conn.close()
@@ -453,3 +539,4 @@ def init_db(db_path: Optional[str] = None):
 
 # Initialize database schemas on module import
 init_db()
+
