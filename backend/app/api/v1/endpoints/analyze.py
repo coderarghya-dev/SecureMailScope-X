@@ -9,12 +9,16 @@ from app.schemas.api import (
     CustodyManifestVersionDTO,
     ReportArtifactDTO,
     ManifestChainVerificationResponse,
+    ReportSignatureRequest,
+    DigitalSignatureDTO,
+    SignatureVerificationResponse,
+    ReportSignaturesListResponse,
 )
 from app.schemas.identity import ActorContext
 from app.services.analysis_service import AnalysisService
 from app.services.report_service import ReportService
 from app.services.custody_service import CustodyService
-from app.db.repository import ForensicRepository
+from app.db.repository import ForensicRepository, IntegrityVerificationError
 from app.services.case_service import CaseService
 
 
@@ -462,6 +466,129 @@ def get_analysis_report_artifact(
         )
 
     return ReportArtifactDTO(**art)
+
+
+# ---------------------------------------------------------------------------
+# Phase 14 Digital Report Signing & Signature Verification Endpoints
+# ---------------------------------------------------------------------------
+@router.post(
+    "/analyses/{analysis_id}/reports/{report_artifact_id}/sign",
+    response_model=DigitalSignatureDTO,
+    summary="Cryptographically Sign Report Artifact",
+    description="Generates an asymmetric digital signature (Ed25519/ECDSA/RSA-PSS) for a report artifact and appends a SIGNATURE_LINKAGE_MANIFEST."
+)
+@router.post(
+    "/analyze/{analysis_id}/reports/{report_artifact_id}/sign",
+    response_model=DigitalSignatureDTO,
+    include_in_schema=False
+)
+def sign_analysis_report(
+    analysis_id: str,
+    report_artifact_id: str,
+    req: Optional[ReportSignatureRequest] = None,
+    x_analyst_id: Optional[str] = Header(None, alias="X-Analyst-ID"),
+    x_analyst_name: Optional[str] = Header(None, alias="X-Analyst-Name"),
+) -> DigitalSignatureDTO:
+    analysis = AnalysisService.get_analysis(analysis_id)
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Analysis '{analysis_id}' not found."
+        )
+
+    actor = ActorContext.from_headers(x_analyst_id=x_analyst_id, x_analyst_name=x_analyst_name)
+    key_id = req.key_id if req else None
+    priv_pem = req.private_key_pem if req else None
+    priv_pwd = req.private_key_password if req else None
+    algo = req.algorithm if req else None
+
+    try:
+        from app.services.signature_service import (
+            SignatureService,
+            SigningUnavailableError,
+            UnsupportedAlgorithmError,
+            SigningError,
+        )
+        sig_data = SignatureService.sign_report_artifact(
+            analysis_id=analysis_id,
+            report_artifact_id=report_artifact_id,
+            key_id=key_id,
+            private_key_pem=priv_pem,
+            password=priv_pwd,
+            algorithm=algo,
+            actor=actor,
+        )
+        return DigitalSignatureDTO(**sig_data)
+    except SigningUnavailableError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"SIGNING_UNAVAILABLE: {str(e)}"
+        )
+    except UnsupportedAlgorithmError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"UNSUPPORTED_ALGORITHM: {str(e)}"
+        )
+    except (IntegrityVerificationError, SigningError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Signature generation failed: {str(e)}"
+        )
+
+
+@router.get(
+    "/analyses/{analysis_id}/reports/{report_artifact_id}/signatures",
+    response_model=ReportSignaturesListResponse,
+    summary="List Signatures for Report Artifact",
+    description="Lists all asymmetric digital signatures issued for a specific report artifact."
+)
+@router.get(
+    "/analyze/{analysis_id}/reports/{report_artifact_id}/signatures",
+    response_model=ReportSignaturesListResponse,
+    include_in_schema=False
+)
+def list_report_signatures(analysis_id: str, report_artifact_id: str) -> ReportSignaturesListResponse:
+    analysis = AnalysisService.get_analysis(analysis_id)
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Analysis '{analysis_id}' not found."
+        )
+    sigs = ForensicRepository.get_report_signatures(analysis_id, report_artifact_id)
+    return ReportSignaturesListResponse(
+        analysis_id=analysis_id,
+        report_artifact_id=report_artifact_id,
+        total_signatures=len(sigs),
+        signatures=[DigitalSignatureDTO(**s) for s in sigs]
+    )
+
+
+@router.get(
+    "/signatures/{signature_id}",
+    response_model=DigitalSignatureDTO,
+    summary="Get Digital Signature Record",
+    description="Retrieves public digital signature metadata, public key PEM, and fingerprint."
+)
+def get_signature_by_id(signature_id: str) -> DigitalSignatureDTO:
+    sig = ForensicRepository.get_digital_signature(signature_id)
+    if not sig:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Digital signature '{signature_id}' not found."
+        )
+    return DigitalSignatureDTO(**sig)
+
+
+@router.get(
+    "/signatures/{signature_id}/verify",
+    response_model=SignatureVerificationResponse,
+    summary="Verify Digital Signature",
+    description="Performs read-only cryptographic verification over the digital signature, public key fingerprint, report artifact, and source manifest."
+)
+def verify_signature_by_id(signature_id: str) -> SignatureVerificationResponse:
+    from app.services.signature_service import SignatureService
+    res = SignatureService.verify_signature(signature_id)
+    return SignatureVerificationResponse(**res)
 
 
 

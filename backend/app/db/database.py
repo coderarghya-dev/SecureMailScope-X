@@ -155,6 +155,13 @@ def init_db(db_path: Optional[str] = None):
         if "actor_attribution_status" not in existing_cols:
             cursor.execute("ALTER TABLE report_artifacts ADD COLUMN actor_attribution_status TEXT NOT NULL DEFAULT 'SYSTEM_GENERATED';")
 
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='digital_signatures';")
+    if cursor.fetchone():
+        cursor.execute("PRAGMA table_info(digital_signatures);")
+        existing_cols = {row["name"] for row in cursor.fetchall()}
+        if "signature_id" not in existing_cols:
+            cursor.execute("ALTER TABLE digital_signatures RENAME TO legacy_digital_signatures_old;")
+
     # 0. Analysts table (Attribution Registry - No credentials or secrets)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS analysts (
@@ -439,17 +446,31 @@ def init_db(db_path: Optional[str] = None):
         )
     """)
 
-    # 15. Digital signatures table (Phase 16)
+    # 15. Digital signatures table (Phase 14 Asymmetric Report Signatures)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS digital_signatures (
-            id TEXT PRIMARY KEY,
-            target_type TEXT,
-            target_id TEXT,
-            content_sha256 TEXT,
-            signature_hex TEXT,
-            public_key_pem TEXT,
-            signed_at TEXT,
-            analyst_name TEXT
+            signature_id TEXT PRIMARY KEY,
+            analysis_id TEXT NOT NULL,
+            report_artifact_id TEXT NOT NULL,
+            manifest_version_id TEXT NOT NULL,
+            signature_algorithm TEXT NOT NULL,
+            signature_format TEXT NOT NULL DEFAULT 'BASE64',
+            signature_value TEXT NOT NULL,
+            signed_digest_algorithm TEXT NOT NULL DEFAULT 'SHA256',
+            signed_digest_value TEXT NOT NULL,
+            public_key_fingerprint_sha256 TEXT NOT NULL,
+            public_key_pem TEXT NOT NULL,
+            key_id TEXT NOT NULL,
+            signed_at TEXT NOT NULL,
+            signed_by_actor_id TEXT NOT NULL DEFAULT 'UNATTRIBUTED',
+            signed_by_actor_display_name TEXT NOT NULL DEFAULT 'Unattributed Analyst',
+            actor_identity_source TEXT NOT NULL DEFAULT 'UNKNOWN',
+            actor_attribution_status TEXT NOT NULL DEFAULT 'UNATTRIBUTED',
+            verification_status TEXT NOT NULL DEFAULT 'VERIFIED',
+            schema_version TEXT NOT NULL DEFAULT '1.0',
+            FOREIGN KEY (analysis_id) REFERENCES custody_records (analysis_id) ON DELETE RESTRICT,
+            FOREIGN KEY (report_artifact_id) REFERENCES report_artifacts (report_artifact_id) ON DELETE RESTRICT,
+            FOREIGN KEY (manifest_version_id) REFERENCES custody_manifest_versions (manifest_version_id) ON DELETE RESTRICT
         )
     """)
 
@@ -532,6 +553,9 @@ def init_db(db_path: Optional[str] = None):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_manifest_sha ON custody_manifest_versions(manifest_sha256);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_report_artifacts_analysis ON report_artifacts(analysis_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_report_artifacts_sha ON report_artifacts(artifact_sha256);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_digital_signatures_analysis ON digital_signatures(analysis_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_digital_signatures_report ON digital_signatures(report_artifact_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_digital_signatures_key_id ON digital_signatures(key_id);")
 
     conn.commit()
     conn.close()

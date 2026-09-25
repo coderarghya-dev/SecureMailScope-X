@@ -635,6 +635,7 @@ class CustodyManifestVersionDTO(BaseModel):
     purpose: Optional[str] = None
     schema_version: str = "1.0"
     linked_report_artifacts: List[Dict[str, Any]] = []
+    linked_signatures: List[Dict[str, Any]] = []
 
 
 class ManifestChainVerificationResponse(BaseModel):
@@ -647,7 +648,61 @@ class ManifestChainVerificationResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# 9. Standard Error Response
+# 9. Digital Report Signing & Signature Schemas (Phase 14)
+# ---------------------------------------------------------------------------
+class ReportSignatureRequest(BaseModel):
+    key_id: Optional[str] = None
+    private_key_pem: Optional[str] = None
+    private_key_password: Optional[str] = None
+    algorithm: Optional[str] = None
+
+
+class DigitalSignatureDTO(BaseModel):
+    signature_id: str
+    analysis_id: str
+    report_artifact_id: str
+    manifest_version_id: str
+    signature_algorithm: str
+    signature_format: str = "BASE64"
+    signature_value: str
+    signed_digest_algorithm: str = "SHA256"
+    signed_digest_value: str
+    public_key_fingerprint_sha256: str
+    public_key_pem: str
+    key_id: str
+    signed_at: str
+    signed_by_actor_id: str = "UNATTRIBUTED"
+    signed_by_actor_display_name: str = "Unattributed Analyst"
+    actor_identity_source: str = "UNKNOWN"
+    actor_attribution_status: str = "UNATTRIBUTED"
+    verification_status: str = "VERIFIED"
+    schema_version: str = "1.0"
+
+
+class SignatureVerificationResponse(BaseModel):
+    signature_id: str
+    analysis_id: str
+    report_artifact_id: str
+    manifest_version_id: str
+    verification_status: str  # VERIFIED | SIGNATURE_INVALID | ARTIFACT_INTEGRITY_FAILED | MANIFEST_INTEGRITY_FAILED | PUBLIC_KEY_MISMATCH | UNSUPPORTED_ALGORITHM | INCOMPLETE
+    signature_algorithm: str
+    public_key_fingerprint_sha256: str
+    key_id: str
+    signed_at: str
+    signed_by_actor: Dict[str, Any]
+    verification_timestamp_utc: str
+    details: Optional[str] = None
+
+
+class ReportSignaturesListResponse(BaseModel):
+    analysis_id: str
+    report_artifact_id: str
+    total_signatures: int
+    signatures: List[DigitalSignatureDTO]
+
+
+# ---------------------------------------------------------------------------
+# 10. Standard Error Response
 # ---------------------------------------------------------------------------
 class ErrorResponse(BaseModel):
     status_code: int

@@ -860,8 +860,10 @@ class ForensicRepository:
                 except Exception:
                     pass
             linked_artifacts = []
+            linked_signatures = []
             if m_dict and isinstance(m_dict, dict):
                 linked_artifacts = m_dict.get("linked_report_artifacts", [])
+                linked_signatures = m_dict.get("linked_signatures", [])
 
             results.append({
                 "manifest_version_id": r["manifest_version_id"],
@@ -884,6 +886,7 @@ class ForensicRepository:
                 "purpose": r["purpose"],
                 "schema_version": r["schema_version"],
                 "linked_report_artifacts": linked_artifacts,
+                "linked_signatures": linked_signatures,
             })
         return results
 
@@ -919,8 +922,10 @@ class ForensicRepository:
             except Exception:
                 pass
         linked_artifacts = []
+        linked_signatures = []
         if m_dict and isinstance(m_dict, dict):
             linked_artifacts = m_dict.get("linked_report_artifacts", [])
+            linked_signatures = m_dict.get("linked_signatures", [])
 
         return {
             "manifest_version_id": r["manifest_version_id"],
@@ -943,6 +948,7 @@ class ForensicRepository:
             "purpose": r["purpose"],
             "schema_version": r["schema_version"],
             "linked_report_artifacts": linked_artifacts,
+            "linked_signatures": linked_signatures,
         }
 
     @classmethod
@@ -1331,6 +1337,252 @@ class ForensicRepository:
             "verification_timestamp_utc": now_iso,
             "details": details,
         }
+
+    # -----------------------------------------------------------------------
+    # 2c. Asymmetric Digital Signatures & Manifest Linkage (Phase 14)
+    # -----------------------------------------------------------------------
+    @classmethod
+    def save_digital_signature(
+        cls,
+        signature_record: Dict[str, Any],
+        db_path: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Persists an append-only asymmetric digital signature record."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                INSERT INTO digital_signatures (
+                    signature_id, analysis_id, report_artifact_id, manifest_version_id,
+                    signature_algorithm, signature_format, signature_value,
+                    signed_digest_algorithm, signed_digest_value,
+                    public_key_fingerprint_sha256, public_key_pem, key_id,
+                    signed_at, signed_by_actor_id, signed_by_actor_display_name,
+                    actor_identity_source, actor_attribution_status, verification_status,
+                    schema_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    signature_record["signature_id"],
+                    signature_record["analysis_id"],
+                    signature_record["report_artifact_id"],
+                    signature_record["manifest_version_id"],
+                    signature_record["signature_algorithm"],
+                    signature_record.get("signature_format", "BASE64"),
+                    signature_record["signature_value"],
+                    signature_record.get("signed_digest_algorithm", "SHA256"),
+                    signature_record["signed_digest_value"],
+                    signature_record["public_key_fingerprint_sha256"],
+                    signature_record["public_key_pem"],
+                    signature_record["key_id"],
+                    signature_record["signed_at"],
+                    signature_record.get("signed_by_actor_id", "UNATTRIBUTED"),
+                    signature_record.get("signed_by_actor_display_name", "Unattributed Analyst"),
+                    signature_record.get("actor_identity_source", "UNKNOWN"),
+                    signature_record.get("actor_attribution_status", "UNATTRIBUTED"),
+                    signature_record.get("verification_status", "VERIFIED"),
+                    signature_record.get("schema_version", CURRENT_SCHEMA_VERSION),
+                )
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+        return signature_record
+
+    @classmethod
+    def save_signature_and_manifest_version(
+        cls,
+        signature_record: Dict[str, Any],
+        manifest_version: Dict[str, Any],
+        db_path: Optional[str] = None,
+        inject_failure_after_signature: bool = False
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """
+        Atomically persists a digital signature record and its associated new manifest version.
+        Rolls back both if either operation fails.
+        """
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+
+        try:
+            # 1. Check if manifest version already exists
+            cursor.execute(
+                "SELECT sealed FROM custody_manifest_versions WHERE analysis_id = ? AND version_number = ?",
+                (manifest_version["analysis_id"], manifest_version["version_number"])
+            )
+            existing = cursor.fetchone()
+            if existing:
+                raise ImmutableRecordError(
+                    f"Custody manifest version {manifest_version['version_number']} for analysis '{manifest_version['analysis_id']}' already exists."
+                )
+
+            # 2. Insert new manifest version
+            cursor.execute(
+                """
+                INSERT INTO custody_manifest_versions (
+                    manifest_version_id, analysis_id, version_number, manifest_type,
+                    parent_manifest_version_id, previous_manifest_sha256, manifest_json,
+                    manifest_sha256, canonicalization_version, created_at,
+                    created_by_actor_id, created_by_actor_display_name,
+                    actor_identity_source, actor_attribution_status, sealed,
+                    supersedes_version_id, purpose, schema_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    manifest_version["manifest_version_id"],
+                    manifest_version["analysis_id"],
+                    manifest_version["version_number"],
+                    manifest_version["manifest_type"],
+                    manifest_version.get("parent_manifest_version_id"),
+                    manifest_version["previous_manifest_sha256"],
+                    manifest_version["manifest_json"],
+                    manifest_version["manifest_sha256"],
+                    manifest_version.get("canonicalization_version", CANONICALIZATION_VERSION),
+                    manifest_version["created_at"],
+                    manifest_version.get("created_by_actor_id", "UNATTRIBUTED"),
+                    manifest_version.get("created_by_actor_display_name", "Unattributed Analyst"),
+                    manifest_version.get("actor_identity_source", "UNKNOWN"),
+                    manifest_version.get("actor_attribution_status", "UNATTRIBUTED"),
+                    1 if manifest_version.get("sealed", True) else 0,
+                    manifest_version.get("supersedes_version_id"),
+                    manifest_version.get("purpose"),
+                    manifest_version.get("schema_version", CURRENT_SCHEMA_VERSION),
+                )
+            )
+
+            # 3. Insert digital signature
+            cursor.execute(
+                """
+                INSERT INTO digital_signatures (
+                    signature_id, analysis_id, report_artifact_id, manifest_version_id,
+                    signature_algorithm, signature_format, signature_value,
+                    signed_digest_algorithm, signed_digest_value,
+                    public_key_fingerprint_sha256, public_key_pem, key_id,
+                    signed_at, signed_by_actor_id, signed_by_actor_display_name,
+                    actor_identity_source, actor_attribution_status, verification_status,
+                    schema_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    signature_record["signature_id"],
+                    signature_record["analysis_id"],
+                    signature_record["report_artifact_id"],
+                    signature_record["manifest_version_id"],
+                    signature_record["signature_algorithm"],
+                    signature_record.get("signature_format", "BASE64"),
+                    signature_record["signature_value"],
+                    signature_record.get("signed_digest_algorithm", "SHA256"),
+                    signature_record["signed_digest_value"],
+                    signature_record["public_key_fingerprint_sha256"],
+                    signature_record["public_key_pem"],
+                    signature_record["key_id"],
+                    signature_record["signed_at"],
+                    signature_record.get("signed_by_actor_id", "UNATTRIBUTED"),
+                    signature_record.get("signed_by_actor_display_name", "Unattributed Analyst"),
+                    signature_record.get("actor_identity_source", "UNKNOWN"),
+                    signature_record.get("actor_attribution_status", "UNATTRIBUTED"),
+                    signature_record.get("verification_status", "VERIFIED"),
+                    signature_record.get("schema_version", CURRENT_SCHEMA_VERSION),
+                )
+            )
+
+            if inject_failure_after_signature:
+                raise RuntimeError("Injected transaction failure after digital signature insertion.")
+
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+        return signature_record, manifest_version
+
+    @classmethod
+    def get_digital_signature(cls, signature_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Retrieves a specific digital signature by ID."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM digital_signatures WHERE signature_id = ?", (signature_id,))
+        r = cursor.fetchone()
+        conn.close()
+        if not r:
+            return None
+
+        return {
+            "signature_id": r["signature_id"],
+            "analysis_id": r["analysis_id"],
+            "report_artifact_id": r["report_artifact_id"],
+            "manifest_version_id": r["manifest_version_id"],
+            "signature_algorithm": r["signature_algorithm"],
+            "signature_format": r["signature_format"],
+            "signature_value": r["signature_value"],
+            "signed_digest_algorithm": r["signed_digest_algorithm"],
+            "signed_digest_value": r["signed_digest_value"],
+            "public_key_fingerprint_sha256": r["public_key_fingerprint_sha256"],
+            "public_key_pem": r["public_key_pem"],
+            "key_id": r["key_id"],
+            "signed_at": r["signed_at"],
+            "signed_by_actor_id": r["signed_by_actor_id"],
+            "signed_by_actor_display_name": r["signed_by_actor_display_name"],
+            "actor_identity_source": r["actor_identity_source"],
+            "actor_attribution_status": r["actor_attribution_status"],
+            "verification_status": r["verification_status"],
+            "schema_version": r["schema_version"],
+        }
+
+    @classmethod
+    def get_report_signatures(
+        cls,
+        analysis_id: str,
+        report_artifact_id: Optional[str] = None,
+        db_path: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Retrieves all digital signatures for an analysis or specific report artifact."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        if report_artifact_id:
+            cursor.execute(
+                "SELECT * FROM digital_signatures WHERE analysis_id = ? AND report_artifact_id = ? ORDER BY signed_at ASC",
+                (analysis_id, report_artifact_id)
+            )
+        else:
+            cursor.execute(
+                "SELECT * FROM digital_signatures WHERE analysis_id = ? ORDER BY signed_at ASC",
+                (analysis_id,)
+            )
+        rows = cursor.fetchall()
+        conn.close()
+
+        results = []
+        for r in rows:
+            results.append({
+                "signature_id": r["signature_id"],
+                "analysis_id": r["analysis_id"],
+                "report_artifact_id": r["report_artifact_id"],
+                "manifest_version_id": r["manifest_version_id"],
+                "signature_algorithm": r["signature_algorithm"],
+                "signature_format": r["signature_format"],
+                "signature_value": r["signature_value"],
+                "signed_digest_algorithm": r["signed_digest_algorithm"],
+                "signed_digest_value": r["signed_digest_value"],
+                "public_key_fingerprint_sha256": r["public_key_fingerprint_sha256"],
+                "public_key_pem": r["public_key_pem"],
+                "key_id": r["key_id"],
+                "signed_at": r["signed_at"],
+                "signed_by_actor_id": r["signed_by_actor_id"],
+                "signed_by_actor_display_name": r["signed_by_actor_display_name"],
+                "actor_identity_source": r["actor_identity_source"],
+                "actor_attribution_status": r["actor_attribution_status"],
+                "verification_status": r["verification_status"],
+                "schema_version": r["schema_version"],
+            })
+        return results
 
     # -----------------------------------------------------------------------
     # 3. Case Management Persistence

@@ -38,6 +38,8 @@ data/reports/
 
 # Cryptographic Keys & Certificates
 backend/data/keys/
+signing_keys/
+private_keys/
 *.pem
 *.key
 *.p12
