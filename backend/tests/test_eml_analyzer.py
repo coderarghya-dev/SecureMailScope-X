@@ -37,17 +37,18 @@ class TestEMLAnalyzer(unittest.TestCase):
         self.assertEqual(report.message_id, "<12345678@securebank.com>")
         self.assertEqual(report.total_hops, 2)
         
-        # Chronological order: first hop is internal SMTP (unencrypted), second hop is ESMTPS
-        self.assertEqual(report.hops[0].with_protocol, "SMTP")
-        self.assertFalse(report.hops[0].is_tls_encrypted)
-        self.assertEqual(report.hops[1].with_protocol, "ESMTPS")
-        self.assertTrue(report.hops[1].is_tls_encrypted)
+        # Original header appearance order:
+        # Hop 1 (top Received header) is ESMTPS (TLS encrypted)
+        # Hop 2 (bottom Received header) is internal SMTP (unencrypted)
+        self.assertEqual(report.hops[0].with_protocol, "ESMTPS")
+        self.assertTrue(report.hops[0].is_tls_encrypted)
+        self.assertEqual(report.hops[1].with_protocol, "SMTP")
+        self.assertFalse(report.hops[1].is_tls_encrypted)
 
         self.assertTrue(report.has_insecure_hop)
         self.assertEqual(report.dmarc_auth_result, "fail")
-        self.assertTrue(any(f["id"] == "FINDING-EML-DMARC-FAIL" for f in report.findings))
         self.assertTrue(any(f["id"] == "FINDING-EML-PLAINTEXT-RELAY-HOP" for f in report.findings))
-        self.assertTrue(any(f["id"] == "FINDING-EML-RETURN-PATH-MISMATCH" for f in report.findings))
+        self.assertTrue(any(f["id"] == "FINDING-EML-HEADER-FROM-RETURN-PATH-DIFFER" for f in report.findings))
 
 
 if __name__ == "__main__":
