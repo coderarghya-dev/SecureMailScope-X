@@ -22,6 +22,7 @@ from app.forensic.pcap_reader import PCAPReader
 from app.forensic.session_reconstructor import SessionReconstructor
 from app.schemas.forensic import EmailSession
 from app.services.custody_service import CustodyService
+from app.db.repository import ForensicRepository
 from app.forensic.incident_correlator import IncidentCorrelator
 from app.schemas.api import (
     AnalysisDetailResponse,
@@ -111,9 +112,10 @@ class AnalysisService:
         # Initialize Chain of Custody Ingestion & Hashing
         CustodyService.get_or_create_record(analysis_id, clean_filename, content)
 
-        # Return cached result if already analyzed
-        if analysis_id in cls._cache:
-            return cls._cache[analysis_id][0]
+        # Return cached or persistently stored result if already analyzed
+        existing_report = cls.get_analysis(analysis_id)
+        if existing_report:
+            return existing_report
 
         # Record Analysis Start
         CustodyService.record_analysis_start(analysis_id)
@@ -129,6 +131,9 @@ class AnalysisService:
             # Execute Forensics
             report, sessions = cls._run_pipeline(temp_path, clean_filename, len(content), analysis_id)
             cls._cache[analysis_id] = (report, sessions)
+
+            # Persist to database
+            cls._persist_analysis(report, sessions)
 
             # Record Analysis Completion & Seal Manifest
             CustodyService.record_analysis_completion(analysis_id, report)
@@ -156,12 +161,14 @@ class AnalysisService:
 
         CustodyService.get_or_create_record(analysis_id, clean_filename, content)
         
-        if analysis_id in cls._cache:
-            return cls._cache[analysis_id][0]
+        existing_report = cls.get_analysis(analysis_id)
+        if existing_report:
+            return existing_report
             
         CustodyService.record_analysis_start(analysis_id)
         report, sessions = cls._run_pipeline(pcap_path, clean_filename, len(content), analysis_id)
         cls._cache[analysis_id] = (report, sessions)
+        cls._persist_analysis(report, sessions)
         CustodyService.record_analysis_completion(analysis_id, report)
         return report
 
@@ -561,10 +568,56 @@ class AnalysisService:
         return report, sessions
 
     @classmethod
+    def _persist_analysis(cls, report: AnalysisDetailResponse, sessions: List[EmailSession]):
+        """Helper to persist analysis to database."""
+        try:
+            raw_packets_map = {}
+            for s in sessions:
+                raw_packets_map[s.session_id] = [
+                    PacketEvidenceDTO(
+                        frame_number=ep.frame_number,
+                        timestamp_epoch=ep.timestamp_epoch,
+                        timestamp_iso=ep.timestamp_iso,
+                        src_ip=ep.src_ip,
+                        src_port=ep.src_port,
+                        dst_ip=ep.dst_ip,
+                        dst_port=ep.dst_port,
+                        protocol=ep.protocol,
+                        length=ep.length,
+                        summary=ep.summary,
+                        raw_payload_preview=ep.raw_payload_preview,
+                        smtp_req_command=ep.smtp_req_command,
+                        smtp_response_code=ep.smtp_response_code,
+                        smtp_response_parameter=ep.smtp_response_parameter
+                    )
+                    for ep in s.evidence_packets
+                ]
+            ForensicRepository.save_analysis(
+                analysis=report,
+                raw_sessions=sessions,
+                raw_packets_by_session=raw_packets_map
+            )
+        except Exception:
+            pass  # Non-fatal if DB is in-memory or locked
+
+    @classmethod
     def get_analysis(cls, analysis_id: str) -> Optional[AnalysisDetailResponse]:
-        """Retrieve cached analysis report by analysis_id."""
+        """Retrieve analysis report from in-memory cache or persistent repository."""
         item = cls._cache.get(analysis_id)
-        return item[0] if item else None
+        if item:
+            return item[0]
+
+        # Query persistent repository
+        stored = ForensicRepository.get_analysis(analysis_id, verify_integrity=True)
+        if stored:
+            cls._cache[analysis_id] = (stored, [])
+            return stored
+        return None
+
+    @classmethod
+    def list_analyses(cls, include_archived: bool = False) -> List[Dict[str, Any]]:
+        """List all stored analyses."""
+        return ForensicRepository.list_analyses(include_archived=include_archived)
 
     @classmethod
     def get_session(cls, analysis_id: str, session_id: str) -> Optional[SessionDetailDTO]:
@@ -578,29 +631,29 @@ class AnalysisService:
     def get_session_packets(cls, analysis_id: str, session_id: str) -> Optional[List[PacketEvidenceDTO]]:
         """Retrieve all raw packet evidence for a specific session."""
         item = cls._cache.get(analysis_id)
-        if not item:
-            return None
-        _, raw_sessions = item
-        raw_session = next((s for s in raw_sessions if s.session_id == session_id), None)
-        if not raw_session:
-            return None
+        if item and item[1]:
+            _, raw_sessions = item
+            raw_session = next((s for s in raw_sessions if s.session_id == session_id), None)
+            if raw_session:
+                return [
+                    PacketEvidenceDTO(
+                        frame_number=ep.frame_number,
+                        timestamp_epoch=ep.timestamp_epoch,
+                        timestamp_iso=ep.timestamp_iso,
+                        src_ip=ep.src_ip,
+                        src_port=ep.src_port,
+                        dst_ip=ep.dst_ip,
+                        dst_port=ep.dst_port,
+                        protocol=ep.protocol,
+                        length=ep.length,
+                        summary=ep.summary,
+                        raw_payload_preview=ep.raw_payload_preview,
+                        smtp_req_command=ep.smtp_req_command,
+                        smtp_response_code=ep.smtp_response_code,
+                        smtp_response_parameter=ep.smtp_response_parameter
+                    )
+                    for ep in raw_session.evidence_packets
+                ]
 
-        return [
-            PacketEvidenceDTO(
-                frame_number=ep.frame_number,
-                timestamp_epoch=ep.timestamp_epoch,
-                timestamp_iso=ep.timestamp_iso,
-                src_ip=ep.src_ip,
-                src_port=ep.src_port,
-                dst_ip=ep.dst_ip,
-                dst_port=ep.dst_port,
-                protocol=ep.protocol,
-                length=ep.length,
-                summary=ep.summary,
-                raw_payload_preview=ep.raw_payload_preview,
-                smtp_req_command=ep.smtp_req_command,
-                smtp_response_code=ep.smtp_response_code,
-                smtp_response_parameter=ep.smtp_response_parameter
-            )
-            for ep in raw_session.evidence_packets
-        ]
+        # Fallback to persistent repository
+        return ForensicRepository.get_session_packets(analysis_id, session_id)

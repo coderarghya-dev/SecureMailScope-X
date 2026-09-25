@@ -1,6 +1,6 @@
 """
-SecureMailScope X - Case Management Service (Phase 17)
-Manages forensic investigative cases, grouping multiple PCAPs, EMLs, analyses, and analyst notes.
+SecureMailScope X - Case Management Service (Phase 11 / Phase 17)
+Manages forensic investigative cases, grouping multiple PCAPs, EMLs, analyses, and additive analyst notes.
 """
 
 import uuid
@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 from app.db.database import get_db_connection
+from app.db.repository import ForensicRepository
 
 
 @dataclass
@@ -26,7 +27,7 @@ class ForensicCase:
     id: str
     title: str
     description: str
-    status: str  # "OPEN" | "IN_PROGRESS" | "CLOSED" | "ARCHIVED"
+    status: str  # "OPEN" | "IN_REVIEW" | "CLOSED" | "ARCHIVED"
     analyst_id: str
     analyst_name: str
     tags: List[str] = field(default_factory=list)
@@ -35,6 +36,7 @@ class ForensicCase:
     analyst_notes: List[Dict[str, Any]] = field(default_factory=list)
     created_at_iso: str = ""
     updated_at_iso: str = ""
+    is_archived: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -45,16 +47,17 @@ class ForensicCase:
             "analyst_id": self.analyst_id,
             "analyst_name": self.analyst_name,
             "tags": self.tags,
-            "artifacts": [a.__dict__ for a in self.artifacts],
+            "artifacts": [a.__dict__ if hasattr(a, "__dict__") else a for a in self.artifacts],
             "analysis_ids": self.analysis_ids,
             "analyst_notes": self.analyst_notes,
             "created_at_iso": self.created_at_iso,
             "updated_at_iso": self.updated_at_iso,
+            "is_archived": self.is_archived,
         }
 
 
 class CaseService:
-    """Provides CRUD operations and artifact linking for forensic cases."""
+    """Provides persistent operations and artifact linking for forensic cases."""
 
     @classmethod
     def create_case(
@@ -64,73 +67,65 @@ class CaseService:
         analyst_id: str = "analyst-01",
         analyst_name: str = "Default Local Analyst",
         tags: Optional[List[str]] = None,
+        db_path: Optional[str] = None,
     ) -> ForensicCase:
         case_id = f"CASE-{uuid.uuid4().hex[:8].upper()}"
-        now_iso = datetime.now(timezone.utc).isoformat()
-        new_case = ForensicCase(
-            id=case_id,
+        case_dict = ForensicRepository.create_case(
+            case_id=case_id,
             title=title,
             description=description,
-            status="OPEN",
             analyst_id=analyst_id,
             analyst_name=analyst_name,
             tags=tags or ["Email-Forensics"],
-            created_at_iso=now_iso,
-            updated_at_iso=now_iso,
+            db_path=db_path,
+        )
+        return ForensicCase(
+            id=case_dict["id"],
+            title=case_dict["title"],
+            description=case_dict["description"],
+            status=case_dict["status"],
+            analyst_id=case_dict["analyst_id"],
+            analyst_name=case_dict["analyst_name"],
+            tags=case_dict["tags"],
+            artifacts=[],
+            analysis_ids=[],
+            analyst_notes=[],
+            created_at_iso=case_dict["created_at_iso"],
+            updated_at_iso=case_dict["updated_at_iso"],
+            is_archived=case_dict["is_archived"],
         )
 
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT OR REPLACE INTO cases (id, title, description, status, analyst_id, analyst_name, tags_json, created_at, updated_at, payload_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                new_case.id,
-                new_case.title,
-                new_case.description,
-                new_case.status,
-                new_case.analyst_id,
-                new_case.analyst_name,
-                json.dumps(new_case.tags),
-                new_case.created_at_iso,
-                new_case.updated_at_iso,
-                json.dumps(new_case.to_dict()),
-            ),
-        )
-        conn.commit()
-        conn.close()
-        return new_case
+    @classmethod
+    def list_cases(cls, include_archived: bool = False, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List cases with attached analyses and notes."""
+        return ForensicRepository.list_cases(include_archived=include_archived, db_path=db_path)
 
     @classmethod
-    def list_cases(cls) -> List[Dict[str, Any]]:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT payload_json FROM cases ORDER BY updated_at DESC")
-        rows = cursor.fetchall()
-        conn.close()
-        cases = []
-        for r in rows:
-            try:
-                cases.append(json.loads(r["payload_json"]))
-            except Exception:
-                pass
-        return cases
+    def get_case(cls, case_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Retrieve full case details."""
+        return ForensicRepository.get_case(case_id, db_path=db_path)
 
     @classmethod
-    def get_case(cls, case_id: str) -> Optional[Dict[str, Any]]:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT payload_json FROM cases WHERE id = ?", (case_id,))
-        row = cursor.fetchone()
-        conn.close()
-        if row:
-            try:
-                return json.loads(row["payload_json"])
-            except Exception:
-                return None
-        return None
+    def attach_analysis_to_case(
+        cls,
+        case_id: str,
+        analysis_id: str,
+        analyst_id: str = "analyst-01",
+        db_path: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Attaches an analysis to a case."""
+        success = ForensicRepository.attach_analysis_to_case(case_id, analysis_id, analyst_id=analyst_id, db_path=db_path)
+        if not success:
+            return None
+        return ForensicRepository.get_case(case_id, db_path=db_path)
+
+    @classmethod
+    def detach_analysis_from_case(cls, case_id: str, analysis_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Detaches an analysis from a case."""
+        success = ForensicRepository.detach_analysis_from_case(case_id, analysis_id, db_path=db_path)
+        if not success:
+            return None
+        return ForensicRepository.get_case(case_id, db_path=db_path)
 
     @classmethod
     def add_artifact_to_case(
@@ -140,58 +135,74 @@ class CaseService:
         filename: str,
         sha256: str,
         analysis_id: Optional[str] = None,
+        db_path: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        case_dict = cls.get_case(case_id)
+        """Adds an artifact link to a case."""
+        case_dict = ForensicRepository.get_case(case_id, db_path=db_path)
         if not case_dict:
             return None
 
         art_id = f"art_{uuid.uuid4().hex[:8]}"
         now_iso = datetime.now(timezone.utc).isoformat()
-        artifact = {
-            "artifact_id": art_id,
-            "artifact_type": artifact_type,
-            "filename": filename,
-            "sha256": sha256,
-            "added_at_iso": now_iso,
-            "analysis_id": analysis_id,
-        }
-        case_dict["artifacts"].append(artifact)
-        if analysis_id and analysis_id not in case_dict["analysis_ids"]:
-            case_dict["analysis_ids"].append(analysis_id)
-        case_dict["updated_at_iso"] = now_iso
 
-        conn = get_db_connection()
+        conn = get_db_connection(db_path)
         cursor = conn.cursor()
         cursor.execute(
-            "UPDATE cases SET updated_at = ?, payload_json = ? WHERE id = ?",
-            (now_iso, json.dumps(case_dict), case_id),
+            """
+            INSERT INTO case_artifacts (artifact_id, case_id, artifact_type, filename, sha256, analysis_id, added_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (art_id, case_id, artifact_type, filename, sha256, analysis_id, now_iso)
         )
+        if analysis_id:
+            cursor.execute(
+                "INSERT OR IGNORE INTO case_analyses (case_id, analysis_id, attached_at, attached_by) VALUES (?, ?, ?, ?)",
+                (case_id, analysis_id, now_iso, "analyst")
+            )
+        cursor.execute("UPDATE cases SET updated_at = ? WHERE id = ?", (now_iso, case_id))
         conn.commit()
         conn.close()
-        return case_dict
+
+        return ForensicRepository.get_case(case_id, db_path=db_path)
 
     @classmethod
-    def add_note_to_case(cls, case_id: str, author: str, note_text: str) -> Optional[Dict[str, Any]]:
-        case_dict = cls.get_case(case_id)
+    def add_note_to_case(cls, case_id: str, author: str, note_text: str, analyst_id: str = "analyst-01", db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Appends an immutable analyst note to a case."""
+        case_dict = ForensicRepository.get_case(case_id, db_path=db_path)
         if not case_dict:
             return None
 
-        now_iso = datetime.now(timezone.utc).isoformat()
-        note = {
-            "note_id": f"note_{uuid.uuid4().hex[:8]}",
-            "author": author,
-            "text": note_text,
-            "timestamp_iso": now_iso,
-        }
-        case_dict["analyst_notes"].append(note)
-        case_dict["updated_at_iso"] = now_iso
-
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE cases SET updated_at = ?, payload_json = ? WHERE id = ?",
-            (now_iso, json.dumps(case_dict), case_id),
+        note_id = f"note_{uuid.uuid4().hex[:8]}"
+        ForensicRepository.add_analyst_note(
+            note_id=note_id,
+            target_type="CASE",
+            target_id=case_id,
+            analyst_id=analyst_id,
+            analyst_name=author,
+            note_text=note_text,
+            db_path=db_path,
         )
-        conn.commit()
-        conn.close()
-        return case_dict
+        return ForensicRepository.get_case(case_id, db_path=db_path)
+
+    @classmethod
+    def add_note_to_analysis(cls, analysis_id: str, author: str, note_text: str, analyst_id: str = "analyst-01", db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Appends an immutable analyst note to an analysis."""
+        analysis = ForensicRepository.get_analysis(analysis_id, db_path=db_path)
+        if not analysis:
+            return None
+
+        note_id = f"note_{uuid.uuid4().hex[:8]}"
+        return ForensicRepository.add_analyst_note(
+            note_id=note_id,
+            target_type="ANALYSIS",
+            target_id=analysis_id,
+            analyst_id=analyst_id,
+            analyst_name=author,
+            note_text=note_text,
+            db_path=db_path,
+        )
+
+    @classmethod
+    def archive_case(cls, case_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Soft-archives a case without erasing linked evidence."""
+        return ForensicRepository.archive_case(case_id, db_path=db_path)

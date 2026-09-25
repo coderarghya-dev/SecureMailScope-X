@@ -1,0 +1,1238 @@
+"""
+SecureMailScope X - Forensic Data Repository & Persistence Engine
+Handles cryptographic verification, canonical JSON serialization, atomic transactions,
+and immutable historical analysis persistence.
+"""
+
+import hashlib
+import json
+import sqlite3
+import uuid
+from datetime import datetime, timezone
+from typing import Dict, Any, List, Optional, Tuple
+
+from app.db.database import get_db_connection
+from app.schemas.api import (
+    AnalysisDetailResponse,
+    AnalysisSummaryResponse,
+    SessionDetailDTO,
+    SessionSummaryDTO,
+    PacketEvidenceDTO,
+    CustodyRecordResponse,
+    CustodyEventDTO,
+    CaptureIntegrityDTO,
+    ManifestIntegrityDTO,
+    ReportIntegrityDTO,
+)
+from app.schemas.forensic import EmailSession
+
+CURRENT_SCHEMA_VERSION = "1.0"
+CURRENT_ANALYZER_VERSION = "SecureMailScope X 1.0.0"
+
+
+CANONICALIZATION_VERSION = "SECUREMAILSCOPE_CANONICAL_JSON_V1"
+
+
+class RepositoryError(Exception):
+    """Base exception for persistence errors."""
+    pass
+
+
+class ImmutableRecordError(RepositoryError):
+    """Raised when attempting to overwrite an immutable finalized forensic record."""
+    pass
+
+
+class IntegrityVerificationError(RepositoryError):
+    """Raised when record hash does not match stored content."""
+    pass
+
+
+class UnsupportedSchemaVersionError(RepositoryError):
+    """Raised when attempting to load a record from an unsupported schema version."""
+    pass
+
+
+def canonical_json_bytes(data: Any) -> bytes:
+    """
+    Deterministic canonical JSON serialization for SecureMailScope X.
+    Specification: SECUREMAILSCOPE_CANONICAL_JSON_V1
+    Rules:
+    - Encoding: UTF-8
+    - Key Sorting: Lexicographical Unicode code-point sorting (sort_keys=True)
+    - Separators: Compact whitespace-free separators (',', ':')
+    - Non-Finite Float Handling: Strictly rejects NaN, Infinity, -Infinity (allow_nan=False)
+    - Character Escaping: Native UTF-8 preserved without unnecessary ASCII escaping (ensure_ascii=False)
+    """
+    return json.dumps(
+        data,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False
+    ).encode("utf-8")
+
+
+def compute_sha256(data: bytes) -> str:
+    """Standard lowercase hex SHA-256 digest."""
+    return hashlib.sha256(data).hexdigest()
+
+
+def compute_json_sha256(data: Any) -> str:
+    """Compute SHA-256 over canonically serialized JSON."""
+    return compute_sha256(canonical_json_bytes(data))
+
+
+class ForensicRepository:
+    """
+    Central repository for persisting and retrieving forensic evidence,
+    reconstructed sessions, findings, cases, and custody logs.
+    """
+
+    # -----------------------------------------------------------------------
+    # 1. Analyses Persistence
+    # -----------------------------------------------------------------------
+    @classmethod
+    def save_analysis(
+        cls,
+        analysis: AnalysisDetailResponse,
+        raw_sessions: Optional[List[EmailSession]] = None,
+        raw_packets_by_session: Optional[Dict[str, List[PacketEvidenceDTO]]] = None,
+        db_path: Optional[str] = None
+    ) -> str:
+        """
+        Persists analysis, sessions, findings, and incidents inside a single atomic transaction.
+        Raises ImmutableRecordError if the analysis is already finalized.
+        """
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+
+        try:
+            # Check existing analysis status
+            cursor.execute(
+                "SELECT is_finalized, observed_result_sha256 FROM analyses WHERE analysis_id = ?",
+                (analysis.analysis_id,)
+            )
+            existing = cursor.fetchone()
+            if existing:
+                if existing["is_finalized"]:
+                    # Already stored and finalized — immutability enforced
+                    conn.close()
+                    return analysis.analysis_id
+
+            analysis_dict = analysis.model_dump() if hasattr(analysis, "model_dump") else analysis.dict()
+            analysis_json = json.dumps(analysis_dict, sort_keys=True, separators=(",", ":"))
+            analysis_hash = compute_sha256(analysis_json.encode("utf-8"))
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            primary_grade = analysis.sessions[0].security_assessment.grade if analysis.sessions else "A"
+
+            # 1. Insert into analyses
+            cursor.execute(
+                """
+                INSERT INTO analyses (
+                    analysis_id, revision, filename, file_size_bytes, capture_sha256,
+                    analyzer_version, schema_version, analysis_status, created_at, finalized_at,
+                    is_finalized, is_archived, observed_result_json, observed_result_sha256,
+                    total_packets, raw_total_frames, email_sessions_found,
+                    evidence_confidence_score, evidence_confidence_level, security_grade
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(analysis_id) DO UPDATE SET
+                    analysis_status = excluded.analysis_status,
+                    finalized_at = excluded.finalized_at,
+                    is_finalized = excluded.is_finalized,
+                    is_archived = excluded.is_archived
+                """,
+                (
+                    analysis.analysis_id,
+                    1,
+                    analysis.file_name,
+                    analysis.file_size_bytes,
+                    analysis.analysis_id.replace("analysis_", ""),  # SHA-256 prefix/token
+                    CURRENT_ANALYZER_VERSION,
+                    CURRENT_SCHEMA_VERSION,
+                    "FINALIZED",
+                    analysis.analysis_time_utc or now_iso,
+                    now_iso,
+                    1,
+                    0,
+                    analysis_json,
+                    analysis_hash,
+                    analysis.total_packets_extracted,
+                    analysis.raw_capture_packets_total or analysis.total_packets_extracted,
+                    analysis.email_sessions_found,
+                    analysis.evidence_confidence_score,
+                    analysis.evidence_confidence_level,
+                    primary_grade,
+                )
+            )
+
+            # 2. Persist Sessions
+            for s in analysis.sessions:
+                s_dict = s.model_dump() if hasattr(s, "model_dump") else s.dict()
+                s_json = json.dumps(s_dict, sort_keys=True, separators=(",", ":"))
+                s_hash = compute_sha256(s_json.encode("utf-8"))
+
+                # Evidence packets JSON
+                pkts = []
+                if raw_packets_by_session and s.session_id in raw_packets_by_session:
+                    pkts = [p.model_dump() if hasattr(p, "model_dump") else p.dict() for p in raw_packets_by_session[s.session_id]]
+                pkts_json = json.dumps(pkts, sort_keys=True, separators=(",", ":"))
+
+                cursor.execute(
+                    """
+                    INSERT INTO sessions (
+                        session_id, analysis_id, stream_index, protocol, security_mode,
+                        client, server, server_hostname, start_time_iso, duration_seconds,
+                        packets_count, security_grade, health_score, confidence_score,
+                        pqc_ready, session_result_json, session_result_sha256, evidence_packets_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(session_id) DO UPDATE SET
+                        session_result_json = excluded.session_result_json,
+                        session_result_sha256 = excluded.session_result_sha256,
+                        evidence_packets_json = excluded.evidence_packets_json
+                    """,
+                    (
+                        s.session_id,
+                        analysis.analysis_id,
+                        s.stream_index,
+                        s.protocol,
+                        s.security_mode,
+                        s.client,
+                        s.server,
+                        s.server_hostname,
+                        s.start_time_iso,
+                        s.duration_seconds,
+                        s.packets_count,
+                        s.security_assessment.grade if s.security_assessment else "A",
+                        s.capture_health.score if s.capture_health else 100,
+                        s.evidence_confidence.score if s.evidence_confidence else 100,
+                        1 if (s.security_assessment and s.security_assessment.post_quantum_ready) else 0,
+                        s_json,
+                        s_hash,
+                        pkts_json,
+                    )
+                )
+
+                # 3. Persist Findings
+                if s.security_assessment and s.security_assessment.findings:
+                    for f in s.security_assessment.findings:
+                        f_dict = f.model_dump() if hasattr(f, "model_dump") else f.dict()
+                        f_json = json.dumps(f_dict, sort_keys=True, separators=(",", ":"))
+                        f_hash = compute_sha256(f_json.encode("utf-8"))
+                        pk_finding = f"{analysis.analysis_id}:{s.session_id}:{f.id}"
+
+                        cursor.execute(
+                            """
+                            INSERT INTO findings (
+                                id, finding_id, analysis_id, session_id, severity,
+                                category, rule_id, title, description, recommendation,
+                                evidence_frames_json, finding_json, finding_sha256
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(id) DO UPDATE SET
+                                finding_json = excluded.finding_json,
+                                finding_sha256 = excluded.finding_sha256
+                            """,
+                            (
+                                pk_finding,
+                                f.id,
+                                analysis.analysis_id,
+                                s.session_id,
+                                f.severity,
+                                f.category,
+                                f.explanation.rule_id if f.explanation else f.id,
+                                f.title,
+                                f.description,
+                                f.recommendation,
+                                json.dumps(f.evidence_frames),
+                                f_json,
+                                f_hash,
+                            )
+                        )
+
+            # 4. Persist Incidents
+            if analysis.correlated_incidents:
+                for inc in analysis.correlated_incidents:
+                    inc_dict = inc.model_dump() if hasattr(inc, "model_dump") else inc.dict()
+                    inc_json = json.dumps(inc_dict, sort_keys=True, separators=(",", ":"))
+                    inc_hash = compute_sha256(inc_json.encode("utf-8"))
+                    pk_incident = f"{analysis.analysis_id}:{inc.incident_id}"
+
+                    cursor.execute(
+                        """
+                        INSERT INTO incidents (
+                            id, incident_id, analysis_id, incident_type, severity,
+                            correlation_method, evidence_backed, correlation_result_json, incident_sha256
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(id) DO UPDATE SET
+                            correlation_result_json = excluded.correlation_result_json,
+                            incident_sha256 = excluded.incident_sha256
+                        """,
+                        (
+                            pk_incident,
+                            inc.incident_id,
+                            analysis.analysis_id,
+                            inc.incident_type,
+                            inc.severity,
+                            inc.correlation_method,
+                            1 if inc.evidence_backed else 0,
+                            inc_json,
+                            inc_hash,
+                        )
+                    )
+
+            conn.commit()
+            return analysis.analysis_id
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    @classmethod
+    def get_analysis(cls, analysis_id: str, verify_integrity: bool = True, db_path: Optional[str] = None) -> Optional[AnalysisDetailResponse]:
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT schema_version, analysis_status, observed_result_json, observed_result_sha256
+                FROM analyses WHERE analysis_id = ?
+                """,
+                (analysis_id,)
+            )
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            # 1. Version Compatibility Check
+            stored_schema = row["schema_version"]
+            if stored_schema.split(".")[0] != CURRENT_SCHEMA_VERSION.split(".")[0]:
+                raise UnsupportedSchemaVersionError(
+                    f"Unsupported schema version '{stored_schema}' for analysis '{analysis_id}'. Current version is '{CURRENT_SCHEMA_VERSION}'."
+                )
+
+            # 2. Cryptographic Integrity Check
+            raw_json_str = row["observed_result_json"]
+            stored_hash = row["observed_result_sha256"]
+
+            if verify_integrity:
+                recomputed_hash = compute_sha256(raw_json_str.encode("utf-8"))
+                if recomputed_hash != stored_hash:
+                    raise IntegrityVerificationError(
+                        f"Integrity check FAILED for analysis '{analysis_id}'. Tampered top-level data detected: expected {stored_hash}, got {recomputed_hash}."
+                    )
+
+                # 3. Child Sessions Integrity Check
+                cursor.execute(
+                    "SELECT session_id, session_result_json, session_result_sha256 FROM sessions WHERE analysis_id = ?",
+                    (analysis_id,)
+                )
+                for s_row in cursor.fetchall():
+                    recomputed_s_hash = compute_sha256(s_row["session_result_json"].encode("utf-8"))
+                    if recomputed_s_hash != s_row["session_result_sha256"]:
+                        raise IntegrityVerificationError(
+                            f"Integrity check FAILED for session '{s_row['session_id']}' in analysis '{analysis_id}'. Tampered session record detected."
+                        )
+
+                # 4. Child Findings Integrity Check
+                cursor.execute(
+                    "SELECT id, finding_id, finding_json, finding_sha256 FROM findings WHERE analysis_id = ?",
+                    (analysis_id,)
+                )
+                for f_row in cursor.fetchall():
+                    recomputed_f_hash = compute_sha256(f_row["finding_json"].encode("utf-8"))
+                    if recomputed_f_hash != f_row["finding_sha256"]:
+                        raise IntegrityVerificationError(
+                            f"Integrity check FAILED for finding '{f_row['finding_id']}' in analysis '{analysis_id}'. Tampered finding record detected."
+                        )
+
+            parsed_dict = json.loads(raw_json_str)
+            return AnalysisDetailResponse(**parsed_dict)
+        except (IntegrityVerificationError, UnsupportedSchemaVersionError):
+            raise
+        except Exception as e:
+            raise RepositoryError(f"Failed to deserialize analysis '{analysis_id}': {str(e)}")
+        finally:
+            conn.close()
+
+    @classmethod
+    def list_analyses(cls, include_archived: bool = False, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Lists historical analyses with summaries, timestamps, status, and grades."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+
+        query = """
+            SELECT analysis_id, filename, file_size_bytes, analysis_status, created_at,
+                   total_packets, email_sessions_found, evidence_confidence_score,
+                   evidence_confidence_level, security_grade, observed_result_sha256, is_archived
+            FROM analyses
+        """
+        if not include_archived:
+            query += " WHERE is_archived = 0"
+        query += " ORDER BY created_at DESC"
+
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        conn.close()
+
+        results = []
+        for r in rows:
+            results.append({
+                "analysis_id": r["analysis_id"],
+                "filename": r["filename"],
+                "file_size_bytes": r["file_size_bytes"],
+                "analysis_status": r["analysis_status"],
+                "created_at": r["created_at"],
+                "total_packets": r["total_packets"],
+                "email_sessions_found": r["email_sessions_found"],
+                "evidence_confidence_score": r["evidence_confidence_score"],
+                "evidence_confidence_level": r["evidence_confidence_level"],
+                "security_grade": r["security_grade"],
+                "sha256_seal": r["observed_result_sha256"],
+                "is_archived": bool(r["is_archived"]),
+            })
+        return results
+
+    @classmethod
+    def get_session_packets(cls, analysis_id: str, session_id: str, db_path: Optional[str] = None) -> Optional[List[PacketEvidenceDTO]]:
+        """Retrieves raw packet evidence for a specific session."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT evidence_packets_json FROM sessions WHERE analysis_id = ? AND session_id = ?",
+            (analysis_id, session_id)
+        )
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row or not row["evidence_packets_json"]:
+            return None
+
+        try:
+            items = json.loads(row["evidence_packets_json"])
+            return [PacketEvidenceDTO(**item) for item in items]
+        except Exception:
+            return None
+
+    # -----------------------------------------------------------------------
+    # 2. Custody Records & Audit Trail Persistence
+    # -----------------------------------------------------------------------
+    @classmethod
+    def save_custody_record(
+        cls,
+        analysis_id: str,
+        filename: str,
+        file_size: int,
+        capture_sha256: str,
+        raw_bytes: Optional[bytes],
+        ingestion_timestamp: str,
+        start_timestamp: Optional[str],
+        completion_timestamp: Optional[str],
+        manifest_dict: Optional[Dict[str, Any]],
+        manifest_hash: Optional[str],
+        report_pdf_bytes: Optional[bytes],
+        report_pdf_hash: Optional[str],
+        events: List[CustodyEventDTO],
+        is_sealed: bool = False,
+        overall_status: str = "VERIFIED",
+        db_path: Optional[str] = None
+    ):
+        """Saves custody record and its append-only chained events."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        try:
+            manifest_json = json.dumps(manifest_dict, sort_keys=True, separators=(",", ":")) if manifest_dict else None
+
+            cursor.execute(
+                """
+                INSERT INTO custody_records (
+                    analysis_id, filename, file_size, capture_sha256, raw_bytes,
+                    ingestion_timestamp, start_timestamp, completion_timestamp,
+                    manifest_dict_json, manifest_hash, report_pdf_bytes, report_pdf_hash,
+                    is_sealed, overall_status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(analysis_id) DO UPDATE SET
+                    start_timestamp = excluded.start_timestamp,
+                    completion_timestamp = excluded.completion_timestamp,
+                    manifest_dict_json = excluded.manifest_dict_json,
+                    manifest_hash = excluded.manifest_hash,
+                    report_pdf_bytes = excluded.report_pdf_bytes,
+                    report_pdf_hash = excluded.report_pdf_hash,
+                    is_sealed = excluded.is_sealed,
+                    overall_status = excluded.overall_status,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    analysis_id,
+                    filename,
+                    file_size,
+                    capture_sha256,
+                    raw_bytes,
+                    ingestion_timestamp,
+                    start_timestamp,
+                    completion_timestamp,
+                    manifest_json,
+                    manifest_hash,
+                    report_pdf_bytes,
+                    report_pdf_hash,
+                    1 if is_sealed else 0,
+                    overall_status,
+                    ingestion_timestamp,
+                    now_iso,
+                )
+            )
+
+            # Insert events in sequence
+            for idx, ev in enumerate(events):
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO custody_events (
+                        event_id, analysis_id, timestamp_utc, event_type,
+                        artifact_hash, previous_event_hash, current_event_hash,
+                        details, sequence_order
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        ev.event_id,
+                        analysis_id,
+                        ev.timestamp_utc,
+                        ev.event_type,
+                        ev.artifact_hash,
+                        ev.previous_event_hash,
+                        ev.current_event_hash,
+                        ev.details,
+                        idx,
+                    )
+                )
+
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    @classmethod
+    def get_custody_record(cls, analysis_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Retrieves raw custody record and ordered audit event trail from DB."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT * FROM custody_records WHERE analysis_id = ?", (analysis_id,))
+        rec_row = cursor.fetchone()
+
+        if not rec_row:
+            conn.close()
+            return None
+
+        cursor.execute(
+            "SELECT * FROM custody_events WHERE analysis_id = ? ORDER BY sequence_order ASC",
+            (analysis_id,)
+        )
+        event_rows = cursor.fetchall()
+        conn.close()
+
+        events = []
+        for er in event_rows:
+            events.append(CustodyEventDTO(
+                event_id=er["event_id"],
+                analysis_id=er["analysis_id"],
+                timestamp_utc=er["timestamp_utc"],
+                event_type=er["event_type"],
+                artifact_hash=er["artifact_hash"],
+                previous_event_hash=er["previous_event_hash"],
+                current_event_hash=er["current_event_hash"],
+                details=er["details"],
+            ))
+
+        manifest = json.loads(rec_row["manifest_dict_json"]) if rec_row["manifest_dict_json"] else None
+
+        return {
+            "analysis_id": rec_row["analysis_id"],
+            "filename": rec_row["filename"],
+            "file_size": rec_row["file_size"],
+            "capture_sha256": rec_row["capture_sha256"],
+            "raw_bytes": rec_row["raw_bytes"],
+            "ingestion_timestamp": rec_row["ingestion_timestamp"],
+            "start_timestamp": rec_row["start_timestamp"],
+            "completion_timestamp": rec_row["completion_timestamp"],
+            "manifest_dict": manifest,
+            "manifest_hash": rec_row["manifest_hash"],
+            "report_pdf_bytes": rec_row["report_pdf_bytes"],
+            "report_pdf_hash": rec_row["report_pdf_hash"],
+            "is_sealed": bool(rec_row["is_sealed"]),
+            "overall_status": rec_row["overall_status"],
+            "events": events,
+        }
+
+    # -----------------------------------------------------------------------
+    # 3. Case Management Persistence
+    # -----------------------------------------------------------------------
+    @classmethod
+    def create_case(
+        cls,
+        case_id: str,
+        title: str,
+        description: str = "",
+        analyst_id: str = "analyst-01",
+        analyst_name: str = "Default Local Analyst",
+        tags: Optional[List[str]] = None,
+        db_path: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Creates a new case in the persistent store."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        tags_list = tags or ["Email-Forensics"]
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            INSERT INTO cases (id, title, description, status, analyst_id, analyst_name, tags_json, created_at, updated_at, is_archived)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (case_id, title, description, "OPEN", analyst_id, analyst_name, json.dumps(tags_list), now_iso, now_iso, 0)
+        )
+        conn.commit()
+        conn.close()
+
+        return {
+            "id": case_id,
+            "title": title,
+            "description": description,
+            "status": "OPEN",
+            "analyst_id": analyst_id,
+            "analyst_name": analyst_name,
+            "tags": tags_list,
+            "created_at_iso": now_iso,
+            "updated_at_iso": now_iso,
+            "artifacts": [],
+            "analysis_ids": [],
+            "analyst_notes": [],
+            "is_archived": False,
+        }
+
+    @classmethod
+    def get_case(cls, case_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Loads case with attached analyses, artifacts, and analyst notes."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT * FROM cases WHERE id = ?", (case_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return None
+
+        # Fetch attached analyses
+        cursor.execute("SELECT analysis_id FROM case_analyses WHERE case_id = ? ORDER BY attached_at ASC", (case_id,))
+        analysis_ids = [r["analysis_id"] for r in cursor.fetchall()]
+
+        # Fetch artifacts
+        cursor.execute("SELECT * FROM case_artifacts WHERE case_id = ? ORDER BY added_at ASC", (case_id,))
+        artifacts = [{
+            "artifact_id": r["artifact_id"],
+            "artifact_type": r["artifact_type"],
+            "filename": r["filename"],
+            "sha256": r["sha256"],
+            "analysis_id": r["analysis_id"],
+            "added_at_iso": r["added_at"],
+        } for r in cursor.fetchall()]
+
+        for art in artifacts:
+            if art["analysis_id"] and art["analysis_id"] not in analysis_ids:
+                analysis_ids.append(art["analysis_id"])
+
+        # Fetch notes
+        cursor.execute("SELECT * FROM analyst_notes WHERE target_type = 'CASE' AND target_id = ? ORDER BY created_at ASC", (case_id,))
+        notes = [{
+            "note_id": r["note_id"],
+            "author": r["analyst_name"],
+            "analyst_id": r["analyst_id"],
+            "text": r["note_text"],
+            "sha256": r["note_sha256"],
+            "timestamp_iso": r["created_at"],
+        } for r in cursor.fetchall()]
+
+        conn.close()
+
+        return {
+            "id": row["id"],
+            "title": row["title"],
+            "description": row["description"],
+            "status": row["status"],
+            "analyst_id": row["analyst_id"],
+            "analyst_name": row["analyst_name"],
+            "tags": json.loads(row["tags_json"]) if row["tags_json"] else [],
+            "created_at_iso": row["created_at"],
+            "updated_at_iso": row["updated_at"],
+            "is_archived": bool(row["is_archived"]),
+            "analysis_ids": analysis_ids,
+            "artifacts": artifacts,
+            "analyst_notes": notes,
+        }
+
+    @classmethod
+    def list_cases(cls, include_archived: bool = False, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Lists all cases."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+
+        query = "SELECT id FROM cases"
+        if not include_archived:
+            query += " WHERE is_archived = 0"
+        query += " ORDER BY updated_at DESC"
+
+        cursor.execute(query)
+        case_ids = [r["id"] for r in cursor.fetchall()]
+        conn.close()
+
+        results = []
+        for cid in case_ids:
+            c = cls.get_case(cid, db_path=db_path)
+            if c:
+                results.append(c)
+        return results
+
+    @classmethod
+    def attach_analysis_to_case(cls, case_id: str, analysis_id: str, analyst_id: str = "analyst-01", db_path: Optional[str] = None) -> bool:
+        """Attaches an analysis to a case and records chained audit event."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        try:
+            cursor.execute(
+                "INSERT OR IGNORE INTO case_analyses (case_id, analysis_id, attached_at, attached_by) VALUES (?, ?, ?, ?)",
+                (case_id, analysis_id, now_iso, analyst_id)
+            )
+            cursor.execute("UPDATE cases SET updated_at = ? WHERE id = ?", (now_iso, case_id))
+
+            cursor.execute("SELECT current_event_hash FROM audit_events ORDER BY rowid DESC LIMIT 1")
+            last_row = cursor.fetchone()
+            prev_hash = last_row["current_event_hash"] if last_row and last_row["current_event_hash"] else ("0" * 64)
+
+            evt_id = f"evt_{uuid.uuid4().hex[:12]}"
+            details = f"Analysis {analysis_id} attached to case {case_id}"
+            evt_dict = {
+                "event_id": evt_id,
+                "timestamp_utc": now_iso,
+                "event_type": "CASE_ANALYSIS_ATTACHED",
+                "object_type": "CASE",
+                "object_id": case_id,
+                "details": details,
+                "previous_event_hash": prev_hash,
+            }
+            evt_hash = compute_sha256(canonical_json_bytes(evt_dict))
+            cursor.execute(
+                """
+                INSERT INTO audit_events (event_id, timestamp_utc, event_type, object_type, object_id, details, previous_event_hash, current_event_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (evt_id, now_iso, "CASE_ANALYSIS_ATTACHED", "CASE", case_id, details, prev_hash, evt_hash)
+            )
+
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
+
+    @classmethod
+    def detach_analysis_from_case(cls, case_id: str, analysis_id: str, db_path: Optional[str] = None) -> bool:
+        """Detaches an analysis from a case and records chained audit event."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        try:
+            cursor.execute("DELETE FROM case_analyses WHERE case_id = ? AND analysis_id = ?", (case_id, analysis_id))
+            cursor.execute("UPDATE cases SET updated_at = ? WHERE id = ?", (now_iso, case_id))
+
+            cursor.execute("SELECT current_event_hash FROM audit_events ORDER BY rowid DESC LIMIT 1")
+            last_row = cursor.fetchone()
+            prev_hash = last_row["current_event_hash"] if last_row and last_row["current_event_hash"] else ("0" * 64)
+
+            evt_id = f"evt_{uuid.uuid4().hex[:12]}"
+            details = f"Analysis {analysis_id} detached from case {case_id}"
+            evt_dict = {
+                "event_id": evt_id,
+                "timestamp_utc": now_iso,
+                "event_type": "CASE_ANALYSIS_DETACHED",
+                "object_type": "CASE",
+                "object_id": case_id,
+                "details": details,
+                "previous_event_hash": prev_hash,
+            }
+            evt_hash = compute_sha256(canonical_json_bytes(evt_dict))
+            cursor.execute(
+                """
+                INSERT INTO audit_events (event_id, timestamp_utc, event_type, object_type, object_id, details, previous_event_hash, current_event_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (evt_id, now_iso, "CASE_ANALYSIS_DETACHED", "CASE", case_id, details, prev_hash, evt_hash)
+            )
+
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
+
+    @classmethod
+    def archive_case(cls, case_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Soft-archives a case and records CASE_ARCHIVED chained audit event."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        try:
+            cursor.execute("UPDATE cases SET status = 'ARCHIVED', is_archived = 1, updated_at = ? WHERE id = ?", (now_iso, case_id))
+
+            cursor.execute("SELECT current_event_hash FROM audit_events ORDER BY rowid DESC LIMIT 1")
+            last_row = cursor.fetchone()
+            prev_hash = last_row["current_event_hash"] if last_row and last_row["current_event_hash"] else ("0" * 64)
+
+            evt_id = f"evt_{uuid.uuid4().hex[:12]}"
+            details = f"Case {case_id} archived"
+            evt_dict = {
+                "event_id": evt_id,
+                "timestamp_utc": now_iso,
+                "event_type": "CASE_ARCHIVED",
+                "object_type": "CASE",
+                "object_id": case_id,
+                "details": details,
+                "previous_event_hash": prev_hash,
+            }
+            evt_hash = compute_sha256(canonical_json_bytes(evt_dict))
+            cursor.execute(
+                """
+                INSERT INTO audit_events (event_id, timestamp_utc, event_type, object_type, object_id, details, previous_event_hash, current_event_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (evt_id, now_iso, "CASE_ARCHIVED", "CASE", case_id, details, prev_hash, evt_hash)
+            )
+
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            return None
+        finally:
+            conn.close()
+
+        return cls.get_case(case_id, db_path=db_path)
+
+    # -----------------------------------------------------------------------
+    # 4. Analyst Notes (Additive Only with Canonical Hashing)
+    # -----------------------------------------------------------------------
+    @classmethod
+    def add_analyst_note(
+        cls,
+        note_id: str,
+        target_type: str,
+        target_id: str,
+        analyst_id: str,
+        analyst_name: str,
+        note_text: str,
+        db_path: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Appends an immutable SHA-256 integrity-hashed analyst note using canonical JSON."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        note_obj = {
+            "target_type": target_type,
+            "target_id": target_id,
+            "analyst_id": analyst_id,
+            "created_at": now_iso,
+            "note_text": note_text,
+        }
+        note_bytes = canonical_json_bytes(note_obj)
+        note_hash = compute_sha256(note_bytes)
+
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            INSERT INTO analyst_notes (note_id, target_type, target_id, analyst_id, analyst_name, note_text, note_sha256, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (note_id, target_type, target_id, analyst_id, analyst_name, note_text, note_hash, now_iso)
+        )
+        if target_type == "CASE":
+            cursor.execute("UPDATE cases SET updated_at = ? WHERE id = ?", (now_iso, target_id))
+
+        conn.commit()
+        conn.close()
+
+        return {
+            "note_id": note_id,
+            "target_type": target_type,
+            "target_id": target_id,
+            "analyst_id": analyst_id,
+            "analyst_name": analyst_name,
+            "note_text": note_text,
+            "note_integrity_sha256": note_hash,
+            "created_at": now_iso,
+        }
+
+    @classmethod
+    def get_analyst_notes(cls, target_type: str, target_id: str, verify_integrity: bool = True, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Retrieves additive notes log for a case or analysis with canonical integrity verification."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM analyst_notes WHERE target_type = ? AND target_id = ? ORDER BY created_at ASC",
+            (target_type, target_id)
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        notes = []
+        for r in rows:
+            if verify_integrity:
+                canonical_obj = {
+                    "target_type": r["target_type"],
+                    "target_id": r["target_id"],
+                    "analyst_id": r["analyst_id"],
+                    "created_at": r["created_at"],
+                    "note_text": r["note_text"],
+                }
+                computed_hash = compute_sha256(canonical_json_bytes(canonical_obj))
+                if computed_hash != r["note_sha256"]:
+                    # Legacy delimiter fallback check
+                    legacy_bytes = f"{r['target_type']}|{r['target_id']}|{r['analyst_id']}|{r['created_at']}|{r['note_text']}".encode("utf-8")
+                    if compute_sha256(legacy_bytes) != r["note_sha256"]:
+                        raise IntegrityVerificationError(
+                            f"Integrity check FAILED for analyst note '{r['note_id']}'. Tampered note content detected."
+                        )
+            notes.append({
+                "note_id": r["note_id"],
+                "target_type": r["target_type"],
+                "target_id": r["target_id"],
+                "analyst_id": r["analyst_id"],
+                "analyst_name": r["analyst_name"],
+                "note_text": r["note_text"],
+                "note_integrity_sha256": r["note_sha256"],
+                "created_at": r["created_at"],
+            })
+        return notes
+
+    # -----------------------------------------------------------------------
+    # 5. Simulations, Active Scans & DNS Enrichments Persistence
+    # -----------------------------------------------------------------------
+    @classmethod
+    def save_simulation(
+        cls,
+        simulation_id: str,
+        analysis_id: str,
+        session_id: str,
+        requested_actions: List[str],
+        projection_dict: Dict[str, Any],
+        parameters: Optional[Dict[str, Any]] = None,
+        db_path: Optional[str] = None
+    ) -> str:
+        """Persists a hypothetical remediation simulation projection."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        proj_bytes = canonical_json_bytes(projection_dict)
+        proj_json = proj_bytes.decode("utf-8")
+        proj_hash = compute_sha256(proj_bytes)
+
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO simulations (
+                simulation_id, analysis_id, session_id, requested_actions_json,
+                parameters_json, projection_json, projection_sha256,
+                authoritative, historical_applicability, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                simulation_id,
+                analysis_id,
+                session_id,
+                json.dumps(requested_actions),
+                json.dumps(parameters) if parameters else None,
+                proj_json,
+                proj_hash,
+                0,
+                "HYPOTHETICAL",
+                now_iso,
+            )
+        )
+        conn.commit()
+        conn.close()
+        return simulation_id
+
+    @classmethod
+    def get_simulation(cls, simulation_id: str, verify_integrity: bool = True, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Retrieves a remediation simulation projection with integrity verification."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM simulations WHERE simulation_id = ?", (simulation_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            return None
+
+        if verify_integrity:
+            recomputed = compute_sha256(row["projection_json"].encode("utf-8"))
+            if recomputed != row["projection_sha256"]:
+                raise IntegrityVerificationError(
+                    f"Integrity check FAILED for simulation '{simulation_id}'. Tampered projection JSON detected."
+                )
+
+        return {
+            "simulation_id": row["simulation_id"],
+            "analysis_id": row["analysis_id"],
+            "session_id": row["session_id"],
+            "requested_actions": json.loads(row["requested_actions_json"]) if row["requested_actions_json"] else [],
+            "parameters": json.loads(row["parameters_json"]) if row["parameters_json"] else None,
+            "projection": json.loads(row["projection_json"]),
+            "projection_sha256": row["projection_sha256"],
+            "authoritative": bool(row["authoritative"]),
+            "historical_applicability": row["historical_applicability"],
+            "created_at": row["created_at"],
+        }
+
+    @classmethod
+    def save_active_scan(
+        cls,
+        scan_id: str,
+        target_host: str,
+        connected_ip: Optional[str],
+        ports_scanned: List[int],
+        result_dict: Dict[str, Any],
+        provenance: str = "ACTIVE_NETWORK_PROBE",
+        db_path: Optional[str] = None
+    ) -> str:
+        """Persists an active network posture scan with canonical hashing."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        res_bytes = canonical_json_bytes(result_dict)
+        res_json = res_bytes.decode("utf-8")
+        res_hash = compute_sha256(res_bytes)
+
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO active_scans (
+                scan_id, target_host, connected_ip, ports_scanned_json,
+                provenance, historical_applicability, result_json, result_sha256, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                scan_id,
+                target_host,
+                connected_ip,
+                json.dumps(ports_scanned),
+                provenance,
+                "CURRENT_STATE_ONLY",
+                res_json,
+                res_hash,
+                now_iso,
+            )
+        )
+        conn.commit()
+        conn.close()
+        return scan_id
+
+    @classmethod
+    def get_active_scan(cls, scan_id: str, verify_integrity: bool = True, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Retrieves an active mail posture scan with integrity verification."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM active_scans WHERE scan_id = ?", (scan_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            return None
+
+        if verify_integrity:
+            recomputed = compute_sha256(row["result_json"].encode("utf-8"))
+            if recomputed != row["result_sha256"]:
+                raise IntegrityVerificationError(
+                    f"Integrity check FAILED for active scan '{scan_id}'. Tampered scan result JSON detected."
+                )
+
+        return {
+            "scan_id": row["scan_id"],
+            "target_host": row["target_host"],
+            "connected_ip": row["connected_ip"],
+            "ports_scanned": json.loads(row["ports_scanned_json"]) if row["ports_scanned_json"] else [],
+            "provenance": row["provenance"],
+            "historical_applicability": row["historical_applicability"],
+            "result": json.loads(row["result_json"]),
+            "result_sha256": row["result_sha256"],
+            "created_at": row["created_at"],
+        }
+
+    @classmethod
+    def save_dns_enrichment(
+        cls,
+        enrichment_id: str,
+        target_domain: str,
+        resolver_provider: Optional[str],
+        result_dict: Dict[str, Any],
+        queried_at_utc: str,
+        provenance: str = "ACTIVE_DNS_ENRICHMENT",
+        db_path: Optional[str] = None
+    ) -> str:
+        """Persists an active DNS enrichment query with canonical hashing."""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        res_bytes = canonical_json_bytes(result_dict)
+        res_json = res_bytes.decode("utf-8")
+        res_hash = compute_sha256(res_bytes)
+
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO dns_enrichments (
+                enrichment_id, target_domain, resolver_provider,
+                provenance, historical_applicability, result_json, result_sha256,
+                queried_at_utc, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                enrichment_id,
+                target_domain,
+                resolver_provider,
+                provenance,
+                "CURRENT_STATE_ONLY",
+                res_json,
+                res_hash,
+                queried_at_utc,
+                now_iso,
+            )
+        )
+        conn.commit()
+        conn.close()
+        return enrichment_id
+
+    @classmethod
+    def get_dns_enrichment(cls, enrichment_id: str, verify_integrity: bool = True, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Retrieves an active DNS enrichment record with integrity verification."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM dns_enrichments WHERE enrichment_id = ?", (enrichment_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            return None
+
+        if verify_integrity:
+            recomputed = compute_sha256(row["result_json"].encode("utf-8"))
+            if recomputed != row["result_sha256"]:
+                raise IntegrityVerificationError(
+                    f"Integrity check FAILED for DNS enrichment '{enrichment_id}'. Tampered result JSON detected."
+                )
+
+        return {
+            "enrichment_id": row["enrichment_id"],
+            "target_domain": row["target_domain"],
+            "resolver_provider": row["resolver_provider"],
+            "provenance": row["provenance"],
+            "historical_applicability": row["historical_applicability"],
+            "result": json.loads(row["result_json"]),
+            "result_sha256": row["result_sha256"],
+            "queried_at_utc": row["queried_at_utc"],
+            "created_at": row["created_at"],
+        }
+
+    # -----------------------------------------------------------------------
+    # 6. System Audit Events Log & Chain Verification
+    # -----------------------------------------------------------------------
+    @classmethod
+    def get_audit_events(
+        cls,
+        object_type: Optional[str] = None,
+        object_id: Optional[str] = None,
+        verify_integrity: bool = True,
+        db_path: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Retrieves system audit events with cryptographic chain integrity verification."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+
+        query = "SELECT * FROM audit_events"
+        params = []
+        conditions = []
+        if object_type:
+            conditions.append("object_type = ?")
+            params.append(object_type)
+        if object_id:
+            conditions.append("object_id = ?")
+            params.append(object_id)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY rowid ASC"
+
+        cursor.execute(query, tuple(params))
+        rows = cursor.fetchall()
+        conn.close()
+
+        # If unconstrained full query, verify end-to-end chain
+        if verify_integrity and not object_type and not object_id:
+            expected_prev = "0" * 64
+            for r in rows:
+                if r["previous_event_hash"] != expected_prev:
+                    raise IntegrityVerificationError(
+                        f"Audit event chain broken at event '{r['event_id']}': previous_event_hash mismatch."
+                    )
+                evt_dict = {
+                    "event_id": r["event_id"],
+                    "timestamp_utc": r["timestamp_utc"],
+                    "event_type": r["event_type"],
+                    "object_type": r["object_type"],
+                    "object_id": r["object_id"],
+                    "details": r["details"],
+                    "previous_event_hash": r["previous_event_hash"],
+                }
+                computed_hash = compute_sha256(canonical_json_bytes(evt_dict))
+                if computed_hash != r["current_event_hash"]:
+                    raise IntegrityVerificationError(
+                        f"Audit event '{r['event_id']}' current_event_hash verification failed. Tampered audit record detected."
+                    )
+                expected_prev = r["current_event_hash"]
+        elif verify_integrity:
+            # Per-event payload integrity check for filtered queries
+            for r in rows:
+                evt_dict = {
+                    "event_id": r["event_id"],
+                    "timestamp_utc": r["timestamp_utc"],
+                    "event_type": r["event_type"],
+                    "object_type": r["object_type"],
+                    "object_id": r["object_id"],
+                    "details": r["details"],
+                    "previous_event_hash": r["previous_event_hash"],
+                }
+                computed_hash = compute_sha256(canonical_json_bytes(evt_dict))
+                if computed_hash != r["current_event_hash"]:
+                    raise IntegrityVerificationError(
+                        f"Audit event '{r['event_id']}' current_event_hash verification failed. Tampered audit record detected."
+                    )
+
+        return [{
+            "event_id": r["event_id"],
+            "timestamp_utc": r["timestamp_utc"],
+            "event_type": r["event_type"],
+            "object_type": r["object_type"],
+            "object_id": r["object_id"],
+            "details": r["details"],
+            "previous_event_hash": r["previous_event_hash"],
+            "current_event_hash": r["current_event_hash"],
+        } for r in rows]

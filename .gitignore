@@ -29,6 +29,8 @@ generated_reports/
 
 # Local Databases
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 

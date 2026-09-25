@@ -1,7 +1,7 @@
 """
 SecureMailScope X - Local Forensic Chain of Custody & Evidence Sealing Service
 Implements append-only chained cryptographic audit trails, deterministic manifest sealing,
-and real-time tamper verification without external distributed ledger dependencies.
+persistent database synchronization, and real-time tamper verification.
 """
 
 import hashlib
@@ -18,9 +18,10 @@ from app.schemas.api import (
     CustodyRecordResponse,
     AnalysisDetailResponse
 )
+from app.db.repository import ForensicRepository
 
 GENESIS_PREV_HASH = "0" * 64
-CANONICALIZATION_METHOD = "JSON_CANONICAL_V1"
+CANONICALIZATION_METHOD = "SECUREMAILSCOPE_CANONICAL_JSON_V1"
 
 
 def compute_sha256(data: bytes) -> str:
@@ -42,12 +43,12 @@ def compute_event_hash(
 
 
 class CustodyRecord:
-    def __init__(self, analysis_id: str, filename: str, content_bytes: bytes):
+    def __init__(self, analysis_id: str, filename: str, content_bytes: bytes, initial_events: Optional[List[CustodyEventDTO]] = None):
         self.analysis_id = analysis_id
         self.filename = filename
         self.raw_bytes = content_bytes
-        self.file_size = len(content_bytes)
-        self.capture_sha256 = compute_sha256(content_bytes)
+        self.file_size = len(content_bytes) if content_bytes else 0
+        self.capture_sha256 = compute_sha256(content_bytes) if content_bytes else "0" * 64
         self.ingestion_timestamp = datetime.now(timezone.utc).isoformat()
         
         self.start_timestamp: Optional[str] = None
@@ -57,21 +58,24 @@ class CustodyRecord:
         
         self.report_pdf_bytes: Optional[bytes] = None
         self.report_pdf_hash: Optional[str] = None
+        self.is_sealed: bool = False
+        self.overall_status: str = "VERIFIED"
         
-        self.events: List[CustodyEventDTO] = []
+        self.events: List[CustodyEventDTO] = initial_events or []
         
-        # 1. Event: CAPTURE_INGESTED
-        self._append_event(
-            event_type="CAPTURE_INGESTED",
-            artifact_hash=self.capture_sha256,
-            details=f"PCAP capture file '{filename}' ingested ({self.file_size} bytes)"
-        )
-        # 2. Event: CAPTURE_HASHED
-        self._append_event(
-            event_type="CAPTURE_HASHED",
-            artifact_hash=self.capture_sha256,
-            details=f"SHA-256 seal computed: {self.capture_sha256}"
-        )
+        if not initial_events:
+            # 1. Event: CAPTURE_INGESTED
+            self._append_event(
+                event_type="CAPTURE_INGESTED",
+                artifact_hash=self.capture_sha256,
+                details=f"PCAP capture file '{filename}' ingested ({self.file_size} bytes)"
+            )
+            # 2. Event: CAPTURE_HASHED
+            self._append_event(
+                event_type="CAPTURE_HASHED",
+                artifact_hash=self.capture_sha256,
+                details=f"SHA-256 seal computed: {self.capture_sha256}"
+            )
 
     def _append_event(self, event_type: str, artifact_hash: str, details: Optional[str] = None) -> CustodyEventDTO:
         event_id = f"evt_{uuid.uuid4().hex[:12]}"
@@ -106,6 +110,27 @@ class CustodyService:
     _records: Dict[str, CustodyRecord] = {}
 
     @classmethod
+    def _persist_record(cls, record: CustodyRecord):
+        """Persists custody record and its event chain to SQLite."""
+        ForensicRepository.save_custody_record(
+            analysis_id=record.analysis_id,
+            filename=record.filename,
+            file_size=record.file_size,
+            capture_sha256=record.capture_sha256,
+            raw_bytes=record.raw_bytes,
+            ingestion_timestamp=record.ingestion_timestamp,
+            start_timestamp=record.start_timestamp,
+            completion_timestamp=record.completion_timestamp,
+            manifest_dict=record.manifest_dict,
+            manifest_hash=record.manifest_hash,
+            report_pdf_bytes=record.report_pdf_bytes,
+            report_pdf_hash=record.report_pdf_hash,
+            events=record.events,
+            is_sealed=record.is_sealed,
+            overall_status=record.overall_status,
+        )
+
+    @classmethod
     def get_or_create_record(
         cls,
         analysis_id: str,
@@ -114,18 +139,66 @@ class CustodyService:
     ) -> CustodyRecord:
         if analysis_id in cls._records:
             return cls._records[analysis_id]
-        
+
+        # Check persistent storage
+        db_rec = ForensicRepository.get_custody_record(analysis_id)
+        if db_rec:
+            record = CustodyRecord(
+                analysis_id=analysis_id,
+                filename=db_rec["filename"],
+                content_bytes=db_rec["raw_bytes"] or content_bytes,
+                initial_events=db_rec["events"]
+            )
+            record.file_size = db_rec["file_size"]
+            record.capture_sha256 = db_rec["capture_sha256"]
+            record.ingestion_timestamp = db_rec["ingestion_timestamp"]
+            record.start_timestamp = db_rec["start_timestamp"]
+            record.completion_timestamp = db_rec["completion_timestamp"]
+            record.manifest_dict = db_rec["manifest_dict"]
+            record.manifest_hash = db_rec["manifest_hash"]
+            record.report_pdf_bytes = db_rec["report_pdf_bytes"]
+            record.report_pdf_hash = db_rec["report_pdf_hash"]
+            record.is_sealed = db_rec["is_sealed"]
+            record.overall_status = db_rec["overall_status"]
+            cls._records[analysis_id] = record
+            return record
+
         record = CustodyRecord(analysis_id, filename, content_bytes)
         cls._records[analysis_id] = record
+        cls._persist_record(record)
         return record
 
     @classmethod
     def get_record(cls, analysis_id: str) -> Optional[CustodyRecord]:
-        return cls._records.get(analysis_id)
+        if analysis_id in cls._records:
+            return cls._records[analysis_id]
+
+        db_rec = ForensicRepository.get_custody_record(analysis_id)
+        if db_rec:
+            record = CustodyRecord(
+                analysis_id=analysis_id,
+                filename=db_rec["filename"],
+                content_bytes=db_rec["raw_bytes"] or b"",
+                initial_events=db_rec["events"]
+            )
+            record.file_size = db_rec["file_size"]
+            record.capture_sha256 = db_rec["capture_sha256"]
+            record.ingestion_timestamp = db_rec["ingestion_timestamp"]
+            record.start_timestamp = db_rec["start_timestamp"]
+            record.completion_timestamp = db_rec["completion_timestamp"]
+            record.manifest_dict = db_rec["manifest_dict"]
+            record.manifest_hash = db_rec["manifest_hash"]
+            record.report_pdf_bytes = db_rec["report_pdf_bytes"]
+            record.report_pdf_hash = db_rec["report_pdf_hash"]
+            record.is_sealed = db_rec["is_sealed"]
+            record.overall_status = db_rec["overall_status"]
+            cls._records[analysis_id] = record
+            return record
+        return None
 
     @classmethod
     def record_analysis_start(cls, analysis_id: str):
-        record = cls._records.get(analysis_id)
+        record = cls.get_record(analysis_id)
         if record:
             record.start_timestamp = datetime.now(timezone.utc).isoformat()
             record._append_event(
@@ -133,6 +206,7 @@ class CustodyService:
                 artifact_hash=record.capture_sha256,
                 details="Passive email forensic pipeline execution commenced"
             )
+            cls._persist_record(record)
 
     @classmethod
     def record_analysis_completion(
@@ -140,7 +214,7 @@ class CustodyService:
         analysis_id: str,
         analysis_detail: AnalysisDetailResponse
     ):
-        record = cls._records.get(analysis_id)
+        record = cls.get_record(analysis_id)
         if not record:
             return
 
@@ -171,16 +245,18 @@ class CustodyService:
 
         record.manifest_dict = manifest
         record.manifest_hash = manifest_hash
+        record.is_sealed = True
 
         record._append_event(
             event_type="ANALYSIS_COMPLETED",
             artifact_hash=manifest_hash,
             details=f"Analysis manifest sealed via {CANONICALIZATION_METHOD} (Hash: {manifest_hash[:16]}...)"
         )
+        cls._persist_record(record)
 
     @classmethod
     def record_report_generation(cls, analysis_id: str, pdf_bytes: bytes) -> str:
-        record = cls._records.get(analysis_id)
+        record = cls.get_record(analysis_id)
         if not record:
             return ""
 
@@ -198,17 +274,19 @@ class CustodyService:
             artifact_hash=pdf_sha256,
             details=f"Forensic PDF audit report compiled (SHA-256: {pdf_sha256[:16]}...)"
         )
+        cls._persist_record(record)
         return pdf_sha256
 
     @classmethod
     def record_report_exported(cls, analysis_id: str):
-        record = cls._records.get(analysis_id)
+        record = cls.get_record(analysis_id)
         if record and record.report_pdf_hash:
             record._append_event(
                 event_type="REPORT_EXPORTED",
                 artifact_hash=record.report_pdf_hash,
                 details="Forensic PDF artifact retrieved for distribution"
             )
+            cls._persist_record(record)
 
     @classmethod
     def verify_integrity(
@@ -216,11 +294,12 @@ class CustodyService:
         analysis_id: str,
         override_capture_bytes: Optional[bytes] = None,
         override_manifest_dict: Optional[Dict[str, Any]] = None,
-        override_event: Optional[Tuple[int, str]] = None
+        override_event: Optional[Tuple[int, str]] = None,
+        record_verification_event: bool = False
     ) -> CustodyRecordResponse:
-        record = cls._records.get(analysis_id)
+        record = cls.get_record(analysis_id)
         if not record:
-            # Fallback mock/unavailable response
+            # Fallback unavailable response
             return CustodyRecordResponse(
                 analysis_id=analysis_id,
                 overall_status="UNAVAILABLE",
@@ -326,13 +405,14 @@ class CustodyService:
         overall_ok = capture_ok and manifest_ok and chain_ok and report_ok
         overall_status = "VERIFIED" if overall_ok else "FAILED"
 
-        # Append INTEGRITY_REVERIFIED event if chain was not artificially tampered during testing
-        if not override_event and not override_capture_bytes and not override_manifest_dict:
+        # Only append INTEGRITY_REVERIFIED event when explicitly requested
+        if record_verification_event and not override_event and not override_capture_bytes and not override_manifest_dict:
             record._append_event(
                 event_type="INTEGRITY_REVERIFIED",
                 artifact_hash=record.manifest_hash or record.capture_sha256,
                 details=f"Cryptographic chain of custody re-verified: {overall_status}"
             )
+            cls._persist_record(record)
 
         manifest_data = record.manifest_dict or {}
         return CustodyRecordResponse(

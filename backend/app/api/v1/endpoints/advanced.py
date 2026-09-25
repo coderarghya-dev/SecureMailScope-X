@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, status, Body
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
 
+from app.db.repository import ForensicRepository
 from app.services.analysis_service import AnalysisService
 from app.services.case_service import CaseService
 from app.scanner.active_scanner import ActiveMailScanner
@@ -82,7 +83,19 @@ def scan_mail_posture(req: MailPostureScanRequest) -> Dict[str, Any]:
         allow_local_testing=False,
         validate_cert_trust=req.validate_cert_trust,
     )
-    return report.to_dict()
+    res_dict = report.to_dict()
+    try:
+        ForensicRepository.save_active_scan(
+            scan_id=report.scan_id,
+            target_host=report.target_host,
+            connected_ip=report.resolved_ip,
+            ports_scanned=[p.port for p in report.ports],
+            result_dict=res_dict,
+            provenance="ACTIVE_NETWORK_PROBE"
+        )
+    except Exception:
+        pass
+    return res_dict
 
 
 @router.post("/scanner/probe", summary="Execute Active Mail Server Security Probe (Legacy)")
@@ -125,7 +138,19 @@ def simulate_analysis_fix(analysis_id: str, req: SimulateFixRequest) -> Dict[str
         remediations=actions,
         parameters=req.parameters,
     )
-    return report.to_dict()
+    res_dict = report.to_dict()
+    try:
+        ForensicRepository.save_simulation(
+            simulation_id=report.simulation_id,
+            analysis_id=analysis_id,
+            session_id=req.session_id,
+            requested_actions=actions,
+            projection_dict=res_dict,
+            parameters=req.parameters
+        )
+    except Exception:
+        pass
+    return res_dict
 
 
 @router.post("/simulation/simulate", summary="Execute Deterministic What-If Fix Simulation (Legacy Bridge)")
@@ -271,3 +296,27 @@ def add_case_artifact(case_id: str, req: CaseArtifactRequest) -> Dict[str, Any]:
     if not updated:
         raise HTTPException(status_code=404, detail=f"Case '{case_id}' not found.")
     return updated
+
+
+@router.post("/cases/{case_id}/analyses/{analysis_id}", summary="Attach Forensic Analysis to Case")
+def attach_analysis_to_case(case_id: str, analysis_id: str) -> Dict[str, Any]:
+    case = CaseService.attach_analysis_to_case(case_id, analysis_id)
+    if not case:
+        raise HTTPException(status_code=404, detail=f"Case '{case_id}' or Analysis '{analysis_id}' not found.")
+    return case
+
+
+@router.delete("/cases/{case_id}/analyses/{analysis_id}", summary="Detach Forensic Analysis from Case")
+def detach_analysis_from_case(case_id: str, analysis_id: str) -> Dict[str, Any]:
+    case = CaseService.detach_analysis_from_case(case_id, analysis_id)
+    if not case:
+        raise HTTPException(status_code=404, detail=f"Case '{case_id}' not found.")
+    return case
+
+
+@router.post("/cases/{case_id}/archive", summary="Soft-Archive Forensic Case")
+def archive_case(case_id: str) -> Dict[str, Any]:
+    case = CaseService.archive_case(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail=f"Case '{case_id}' not found.")
+    return case

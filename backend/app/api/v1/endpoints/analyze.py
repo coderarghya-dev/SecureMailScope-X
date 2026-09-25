@@ -48,11 +48,37 @@ async def analyze_pcap_upload(file: UploadFile = File(...)) -> AnalysisDetailRes
         )
 
 
+from typing import List, Dict, Any
+from pydantic import BaseModel
+from app.db.repository import ForensicRepository
+from app.services.case_service import CaseService
+
+
+class AnalysisNoteRequest(BaseModel):
+    author: str
+    text: str
+    analyst_id: str = "analyst-01"
+
+
+@router.get(
+    "/analyses",
+    summary="List Historical Analyses",
+    description="Lists all persisted forensic analyses with metadata, SHA-256 seals, session counts, and security grades."
+)
+def list_analyses(include_archived: bool = False) -> List[Dict[str, Any]]:
+    return AnalysisService.list_analyses(include_archived=include_archived)
+
+
 @router.get(
     "/analyze/{analysis_id}",
     response_model=AnalysisDetailResponse,
     summary="Get Analysis Report by ID",
     description="Retrieve full analysis report and reconstructed email sessions for a previously analyzed capture."
+)
+@router.get(
+    "/analyses/{analysis_id}",
+    response_model=AnalysisDetailResponse,
+    include_in_schema=False
 )
 def get_analysis_by_id(analysis_id: str) -> AnalysisDetailResponse:
     report = AnalysisService.get_analysis(analysis_id)
@@ -62,6 +88,57 @@ def get_analysis_by_id(analysis_id: str) -> AnalysisDetailResponse:
             detail=f"Analysis report '{analysis_id}' not found."
         )
     return report
+
+
+@router.post(
+    "/analyses/{analysis_id}/notes",
+    summary="Add Additive Analyst Note to Analysis",
+    description="Appends an immutable, cryptographic analyst note associated with this analysis."
+)
+def add_analysis_note(analysis_id: str, req: AnalysisNoteRequest) -> Dict[str, Any]:
+    note = CaseService.add_note_to_analysis(
+        analysis_id=analysis_id,
+        author=req.author,
+        note_text=req.text,
+        analyst_id=req.analyst_id
+    )
+    if not note:
+        raise HTTPException(status_code=404, detail=f"Analysis '{analysis_id}' not found.")
+    return note
+
+
+@router.get(
+    "/analyses/{analysis_id}/notes",
+    summary="Get Analyst Notes for Analysis",
+    description="Retrieves the chronological, append-only analyst notes log for this analysis."
+)
+def get_analysis_notes(analysis_id: str) -> List[Dict[str, Any]]:
+    analysis = AnalysisService.get_analysis(analysis_id)
+    if not analysis:
+        raise HTTPException(status_code=404, detail=f"Analysis '{analysis_id}' not found.")
+    return ForensicRepository.get_analyst_notes("ANALYSIS", analysis_id)
+
+
+@router.get(
+    "/analyses/{analysis_id}/history",
+    summary="Get Analysis History & Provenance",
+    description="Returns full audit event trail and provenance record for this analysis."
+)
+def get_analysis_history(analysis_id: str) -> Dict[str, Any]:
+    analysis = AnalysisService.get_analysis(analysis_id)
+    if not analysis:
+        raise HTTPException(status_code=404, detail=f"Analysis '{analysis_id}' not found.")
+    custody = CustodyService.verify_integrity(analysis_id)
+    notes = ForensicRepository.get_analyst_notes("ANALYSIS", analysis_id)
+    return {
+        "analysis_id": analysis_id,
+        "filename": analysis.file_name,
+        "analysis_time_utc": analysis.analysis_time_utc,
+        "tshark_version": analysis.tshark_version,
+        "overall_custody_status": custody.overall_status,
+        "audit_events": [e.model_dump() if hasattr(e, "model_dump") else e.dict() for e in custody.audit_events],
+        "analyst_notes": notes
+    }
 
 
 @router.get(
@@ -142,7 +219,7 @@ def get_analysis_custody(analysis_id: str) -> CustodyRecordResponse:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Analysis report '{analysis_id}' not found."
         )
-    return CustodyService.verify_integrity(analysis_id)
+    return CustodyService.verify_integrity(analysis_id, record_verification_event=False)
 
 
 @router.post(
@@ -163,7 +240,7 @@ def verify_analysis_custody(analysis_id: str) -> CustodyRecordResponse:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Analysis report '{analysis_id}' not found."
         )
-    return CustodyService.verify_integrity(analysis_id)
+    return CustodyService.verify_integrity(analysis_id, record_verification_event=True)
 
 
 @router.post(
