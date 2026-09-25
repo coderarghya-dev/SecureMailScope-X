@@ -162,6 +162,13 @@ def init_db(db_path: Optional[str] = None):
         if "signature_id" not in existing_cols:
             cursor.execute("ALTER TABLE digital_signatures RENAME TO legacy_digital_signatures_old;")
 
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='notarization_records';")
+    if cursor.fetchone():
+        cursor.execute("PRAGMA table_info(notarization_records);")
+        existing_cols = {row["name"] for row in cursor.fetchall()}
+        if "notarization_id" not in existing_cols:
+            cursor.execute("ALTER TABLE notarization_records RENAME TO legacy_notarization_records_old;")
+
     # 0. Analysts table (Attribution Registry - No credentials or secrets)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS analysts (
@@ -474,17 +481,33 @@ def init_db(db_path: Optional[str] = None):
         )
     """)
 
-    # 16. Notarization records table (Phase 16)
+    # 16. Notarization records table (Phase 15 Notarization Abstraction & Local Proof Records)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS notarization_records (
-            id TEXT PRIMARY KEY,
-            analysis_id TEXT,
-            manifest_hash TEXT,
-            provider TEXT,
-            status TEXT,
-            tx_reference TEXT,
-            notarized_at TEXT,
-            payload_json TEXT
+            notarization_id TEXT PRIMARY KEY,
+            analysis_id TEXT NOT NULL,
+            report_artifact_id TEXT NOT NULL,
+            signature_id TEXT NOT NULL,
+            manifest_version_id TEXT NOT NULL,
+            notarization_mode TEXT NOT NULL DEFAULT 'LOCAL_ONLY',
+            provider_name TEXT,
+            provider_reference TEXT,
+            submitted_payload_sha256 TEXT,
+            local_proof_sha256 TEXT NOT NULL,
+            provider_proof_json TEXT,
+            provider_proof_sha256 TEXT,
+            status TEXT NOT NULL DEFAULT 'LOCAL_PROOF_CREATED',
+            created_at TEXT NOT NULL,
+            confirmed_at TEXT,
+            created_by_actor_id TEXT NOT NULL DEFAULT 'UNATTRIBUTED',
+            created_by_actor_display_name TEXT NOT NULL DEFAULT 'Unattributed Analyst',
+            actor_identity_source TEXT NOT NULL DEFAULT 'UNKNOWN',
+            actor_attribution_status TEXT NOT NULL DEFAULT 'UNATTRIBUTED',
+            schema_version TEXT NOT NULL DEFAULT '1.0',
+            FOREIGN KEY (analysis_id) REFERENCES custody_records (analysis_id) ON DELETE RESTRICT,
+            FOREIGN KEY (report_artifact_id) REFERENCES report_artifacts (report_artifact_id) ON DELETE RESTRICT,
+            FOREIGN KEY (signature_id) REFERENCES digital_signatures (signature_id) ON DELETE RESTRICT,
+            FOREIGN KEY (manifest_version_id) REFERENCES custody_manifest_versions (manifest_version_id) ON DELETE RESTRICT
         )
     """)
 
@@ -556,6 +579,10 @@ def init_db(db_path: Optional[str] = None):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_digital_signatures_analysis ON digital_signatures(analysis_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_digital_signatures_report ON digital_signatures(report_artifact_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_digital_signatures_key_id ON digital_signatures(key_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_notarization_records_analysis ON notarization_records(analysis_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_notarization_records_report ON notarization_records(report_artifact_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_notarization_records_sig ON notarization_records(signature_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_notarization_records_proof_sha ON notarization_records(local_proof_sha256);")
 
     conn.commit()
     conn.close()

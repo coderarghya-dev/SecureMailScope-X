@@ -1585,6 +1585,252 @@ class ForensicRepository:
         return results
 
     # -----------------------------------------------------------------------
+    # 2d. Notarization Provider Records & Local Proofs (Phase 15)
+    # -----------------------------------------------------------------------
+    @classmethod
+    def save_notarization_record(
+        cls,
+        notarization_record: Dict[str, Any],
+        db_path: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Persists an append-only notarization proof record."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                INSERT INTO notarization_records (
+                    notarization_id, analysis_id, report_artifact_id, signature_id, manifest_version_id,
+                    notarization_mode, provider_name, provider_reference, submitted_payload_sha256,
+                    local_proof_sha256, provider_proof_json, provider_proof_sha256, status,
+                    created_at, confirmed_at, created_by_actor_id, created_by_actor_display_name,
+                    actor_identity_source, actor_attribution_status, schema_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    notarization_record["notarization_id"],
+                    notarization_record["analysis_id"],
+                    notarization_record["report_artifact_id"],
+                    notarization_record["signature_id"],
+                    notarization_record["manifest_version_id"],
+                    notarization_record.get("notarization_mode", "LOCAL_ONLY"),
+                    notarization_record.get("provider_name"),
+                    notarization_record.get("provider_reference"),
+                    notarization_record.get("submitted_payload_sha256"),
+                    notarization_record["local_proof_sha256"],
+                    notarization_record.get("provider_proof_json"),
+                    notarization_record.get("provider_proof_sha256"),
+                    notarization_record.get("status", "LOCAL_PROOF_CREATED"),
+                    notarization_record["created_at"],
+                    notarization_record.get("confirmed_at"),
+                    notarization_record.get("created_by_actor_id", "UNATTRIBUTED"),
+                    notarization_record.get("created_by_actor_display_name", "Unattributed Analyst"),
+                    notarization_record.get("actor_identity_source", "UNKNOWN"),
+                    notarization_record.get("actor_attribution_status", "UNATTRIBUTED"),
+                    notarization_record.get("schema_version", CURRENT_SCHEMA_VERSION),
+                )
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+        return notarization_record
+
+    @classmethod
+    def save_notarization_and_manifest_version(
+        cls,
+        notarization_record: Dict[str, Any],
+        manifest_version: Dict[str, Any],
+        db_path: Optional[str] = None,
+        inject_failure_after_notarization: bool = False
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """
+        Atomically persists a notarization proof record and its associated new manifest version.
+        Rolls back both if either operation fails.
+        """
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+
+        try:
+            # 1. Check if manifest version already exists
+            cursor.execute(
+                "SELECT sealed FROM custody_manifest_versions WHERE analysis_id = ? AND version_number = ?",
+                (manifest_version["analysis_id"], manifest_version["version_number"])
+            )
+            existing = cursor.fetchone()
+            if existing:
+                raise ImmutableRecordError(
+                    f"Custody manifest version {manifest_version['version_number']} for analysis '{manifest_version['analysis_id']}' already exists."
+                )
+
+            # 2. Insert new manifest version
+            cursor.execute(
+                """
+                INSERT INTO custody_manifest_versions (
+                    manifest_version_id, analysis_id, version_number, manifest_type,
+                    parent_manifest_version_id, previous_manifest_sha256, manifest_json,
+                    manifest_sha256, canonicalization_version, created_at,
+                    created_by_actor_id, created_by_actor_display_name,
+                    actor_identity_source, actor_attribution_status, sealed,
+                    supersedes_version_id, purpose, schema_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    manifest_version["manifest_version_id"],
+                    manifest_version["analysis_id"],
+                    manifest_version["version_number"],
+                    manifest_version["manifest_type"],
+                    manifest_version.get("parent_manifest_version_id"),
+                    manifest_version["previous_manifest_sha256"],
+                    manifest_version["manifest_json"],
+                    manifest_version["manifest_sha256"],
+                    manifest_version.get("canonicalization_version", CANONICALIZATION_VERSION),
+                    manifest_version["created_at"],
+                    manifest_version.get("created_by_actor_id", "UNATTRIBUTED"),
+                    manifest_version.get("created_by_actor_display_name", "Unattributed Analyst"),
+                    manifest_version.get("actor_identity_source", "UNKNOWN"),
+                    manifest_version.get("actor_attribution_status", "UNATTRIBUTED"),
+                    1 if manifest_version.get("sealed", True) else 0,
+                    manifest_version.get("supersedes_version_id"),
+                    manifest_version.get("purpose"),
+                    manifest_version.get("schema_version", CURRENT_SCHEMA_VERSION),
+                )
+            )
+
+            # 3. Insert notarization record
+            cursor.execute(
+                """
+                INSERT INTO notarization_records (
+                    notarization_id, analysis_id, report_artifact_id, signature_id, manifest_version_id,
+                    notarization_mode, provider_name, provider_reference, submitted_payload_sha256,
+                    local_proof_sha256, provider_proof_json, provider_proof_sha256, status,
+                    created_at, confirmed_at, created_by_actor_id, created_by_actor_display_name,
+                    actor_identity_source, actor_attribution_status, schema_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    notarization_record["notarization_id"],
+                    notarization_record["analysis_id"],
+                    notarization_record["report_artifact_id"],
+                    notarization_record["signature_id"],
+                    notarization_record["manifest_version_id"],
+                    notarization_record.get("notarization_mode", "LOCAL_ONLY"),
+                    notarization_record.get("provider_name"),
+                    notarization_record.get("provider_reference"),
+                    notarization_record.get("submitted_payload_sha256"),
+                    notarization_record["local_proof_sha256"],
+                    notarization_record.get("provider_proof_json"),
+                    notarization_record.get("provider_proof_sha256"),
+                    notarization_record.get("status", "LOCAL_PROOF_CREATED"),
+                    notarization_record["created_at"],
+                    notarization_record.get("confirmed_at"),
+                    notarization_record.get("created_by_actor_id", "UNATTRIBUTED"),
+                    notarization_record.get("created_by_actor_display_name", "Unattributed Analyst"),
+                    notarization_record.get("actor_identity_source", "UNKNOWN"),
+                    notarization_record.get("actor_attribution_status", "UNATTRIBUTED"),
+                    notarization_record.get("schema_version", CURRENT_SCHEMA_VERSION),
+                )
+            )
+
+            if inject_failure_after_notarization:
+                raise RuntimeError("Injected transaction failure after notarization record insertion.")
+
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+        return notarization_record, manifest_version
+
+    @classmethod
+    def get_notarization_record(cls, notarization_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Retrieves a specific notarization proof record by ID."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM notarization_records WHERE notarization_id = ?", (notarization_id,))
+        r = cursor.fetchone()
+        conn.close()
+        if not r:
+            return None
+
+        return {
+            "notarization_id": r["notarization_id"],
+            "analysis_id": r["analysis_id"],
+            "report_artifact_id": r["report_artifact_id"],
+            "signature_id": r["signature_id"],
+            "manifest_version_id": r["manifest_version_id"],
+            "notarization_mode": r["notarization_mode"],
+            "provider_name": r["provider_name"],
+            "provider_reference": r["provider_reference"],
+            "submitted_payload_sha256": r["submitted_payload_sha256"],
+            "local_proof_sha256": r["local_proof_sha256"],
+            "provider_proof_json": r["provider_proof_json"],
+            "provider_proof_sha256": r["provider_proof_sha256"],
+            "status": r["status"],
+            "created_at": r["created_at"],
+            "confirmed_at": r["confirmed_at"],
+            "created_by_actor_id": r["created_by_actor_id"],
+            "created_by_actor_display_name": r["created_by_actor_display_name"],
+            "actor_identity_source": r["actor_identity_source"],
+            "actor_attribution_status": r["actor_attribution_status"],
+            "schema_version": r["schema_version"],
+        }
+
+    @classmethod
+    def get_analysis_notarizations(
+        cls,
+        analysis_id: str,
+        report_artifact_id: Optional[str] = None,
+        db_path: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Retrieves all notarization records for an analysis or specific report artifact."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        if report_artifact_id:
+            cursor.execute(
+                "SELECT * FROM notarization_records WHERE analysis_id = ? AND report_artifact_id = ? ORDER BY created_at ASC",
+                (analysis_id, report_artifact_id)
+            )
+        else:
+            cursor.execute(
+                "SELECT * FROM notarization_records WHERE analysis_id = ? ORDER BY created_at ASC",
+                (analysis_id,)
+            )
+        rows = cursor.fetchall()
+        conn.close()
+
+        results = []
+        for r in rows:
+            results.append({
+                "notarization_id": r["notarization_id"],
+                "analysis_id": r["analysis_id"],
+                "report_artifact_id": r["report_artifact_id"],
+                "signature_id": r["signature_id"],
+                "manifest_version_id": r["manifest_version_id"],
+                "notarization_mode": r["notarization_mode"],
+                "provider_name": r["provider_name"],
+                "provider_reference": r["provider_reference"],
+                "submitted_payload_sha256": r["submitted_payload_sha256"],
+                "local_proof_sha256": r["local_proof_sha256"],
+                "provider_proof_json": r["provider_proof_json"],
+                "provider_proof_sha256": r["provider_proof_sha256"],
+                "status": r["status"],
+                "created_at": r["created_at"],
+                "confirmed_at": r["confirmed_at"],
+                "created_by_actor_id": r["created_by_actor_id"],
+                "created_by_actor_display_name": r["created_by_actor_display_name"],
+                "actor_identity_source": r["actor_identity_source"],
+                "actor_attribution_status": r["actor_attribution_status"],
+                "schema_version": r["schema_version"],
+            })
+        return results
+
+    # -----------------------------------------------------------------------
     # 3. Case Management Persistence
     # -----------------------------------------------------------------------
     @classmethod

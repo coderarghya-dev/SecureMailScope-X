@@ -702,13 +702,68 @@ class ReportSignaturesListResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# 10. Standard Error Response
+# 10. Notarization Provider & Local Proof Schemas (Phase 15)
+# ---------------------------------------------------------------------------
+class NotarizationRequest(BaseModel):
+    signature_id: Optional[str] = None
+    mode: str = "LOCAL_ONLY"
+
+
+class NotarizationRecordDTO(BaseModel):
+    notarization_id: str
+    analysis_id: str
+    report_artifact_id: str
+    signature_id: str
+    manifest_version_id: str
+    notarization_mode: str = "LOCAL_ONLY"
+    provider_name: Optional[str] = None
+    provider_reference: Optional[str] = None
+    submitted_payload_sha256: Optional[str] = None
+    local_proof_sha256: str
+    provider_proof_json: Optional[str] = None
+    provider_proof_sha256: Optional[str] = None
+    status: str = "LOCAL_PROOF_CREATED"
+    created_at: str
+    confirmed_at: Optional[str] = None
+    created_by_actor_id: str = "UNATTRIBUTED"
+    created_by_actor_display_name: str = "Unattributed Analyst"
+    actor_identity_source: str = "UNKNOWN"
+    actor_attribution_status: str = "UNATTRIBUTED"
+    schema_version: str = "1.0"
+
+
+class NotarizationVerificationResponse(BaseModel):
+    notarization_id: str
+    analysis_id: str
+    report_artifact_id: str
+    signature_id: str
+    manifest_version_id: str
+    notarization_mode: str
+    status: str
+    verification_status: str  # VERIFIED_LOCAL_PROOF | INTEGRITY_FAILED | SIGNATURE_INVALID | REPORT_INTEGRITY_FAILED | MANIFEST_INTEGRITY_FAILED | INCOMPLETE | UNSUPPORTED_PROVIDER
+    local_proof_sha256: str
+    created_at: str
+    created_by_actor: Dict[str, Any]
+    verification_timestamp_utc: str
+    details: Optional[str] = None
+
+
+class AnalysisNotarizationsListResponse(BaseModel):
+    analysis_id: str
+    report_artifact_id: Optional[str] = None
+    total_notarizations: int
+    notarizations: List[NotarizationRecordDTO]
+
+
+# ---------------------------------------------------------------------------
+# 11. Standard Error Response
 # ---------------------------------------------------------------------------
 class ErrorResponse(BaseModel):
     status_code: int
     error_code: str
     message: str
     details: Optional[Any] = None
+
 
 
 

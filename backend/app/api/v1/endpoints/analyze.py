@@ -13,6 +13,10 @@ from app.schemas.api import (
     DigitalSignatureDTO,
     SignatureVerificationResponse,
     ReportSignaturesListResponse,
+    NotarizationRequest,
+    NotarizationRecordDTO,
+    NotarizationVerificationResponse,
+    AnalysisNotarizationsListResponse,
 )
 from app.schemas.identity import ActorContext
 from app.services.analysis_service import AnalysisService
@@ -589,6 +593,135 @@ def verify_signature_by_id(signature_id: str) -> SignatureVerificationResponse:
     from app.services.signature_service import SignatureService
     res = SignatureService.verify_signature(signature_id)
     return SignatureVerificationResponse(**res)
+
+
+# ---------------------------------------------------------------------------
+# Phase 15 Notarization Provider & Local Proof Endpoints
+# ---------------------------------------------------------------------------
+@router.post(
+    "/analyses/{analysis_id}/reports/{report_artifact_id}/notarize",
+    response_model=NotarizationRecordDTO,
+    summary="Create Notarization Proof for Report Artifact",
+    description="Creates a deterministic local integrity proof (or external submission) for a signed report artifact and appends a NOTARIZATION_LINKAGE_MANIFEST."
+)
+@router.post(
+    "/analyze/{analysis_id}/reports/{report_artifact_id}/notarize",
+    response_model=NotarizationRecordDTO,
+    include_in_schema=False
+)
+def notarize_analysis_report(
+    analysis_id: str,
+    report_artifact_id: str,
+    req: Optional[NotarizationRequest] = None,
+    x_analyst_id: Optional[str] = Header(None, alias="X-Analyst-ID"),
+    x_analyst_name: Optional[str] = Header(None, alias="X-Analyst-Name"),
+) -> NotarizationRecordDTO:
+    analysis = AnalysisService.get_analysis(analysis_id)
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Analysis '{analysis_id}' not found."
+        )
+
+    actor = ActorContext.from_headers(x_analyst_id=x_analyst_id, x_analyst_name=x_analyst_name)
+    mode = req.mode if req and req.mode else "LOCAL_ONLY"
+    sig_id = req.signature_id if req else None
+
+    try:
+        from app.services.notarization_service import (
+            NotarizationService,
+            NotarizationPrerequisiteError,
+            ProviderUnavailableError,
+            UnsupportedProviderError,
+            NotarizationError,
+        )
+        notz_data = NotarizationService.create_notarization_proof(
+            analysis_id=analysis_id,
+            report_artifact_id=report_artifact_id,
+            signature_id=sig_id,
+            mode=mode,
+            actor=actor,
+        )
+        return NotarizationRecordDTO(**notz_data)
+    except NotarizationPrerequisiteError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"PREREQUISITE_FAILED: {str(e)}"
+        )
+    except ProviderUnavailableError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"PROVIDER_UNAVAILABLE: {str(e)}"
+        )
+    except UnsupportedProviderError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"UNSUPPORTED: {str(e)}"
+        )
+    except (IntegrityVerificationError, NotarizationError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Notarization failed: {str(e)}"
+        )
+
+
+@router.get(
+    "/analyses/{analysis_id}/notarizations",
+    response_model=AnalysisNotarizationsListResponse,
+    summary="List Notarization Proof Records for Analysis",
+    description="Lists all local and external notarization proof records issued for artifacts of this analysis."
+)
+@router.get(
+    "/analyze/{analysis_id}/notarizations",
+    response_model=AnalysisNotarizationsListResponse,
+    include_in_schema=False
+)
+def list_analysis_notarizations(
+    analysis_id: str,
+    report_artifact_id: Optional[str] = None
+) -> AnalysisNotarizationsListResponse:
+    analysis = AnalysisService.get_analysis(analysis_id)
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Analysis '{analysis_id}' not found."
+        )
+    records = ForensicRepository.get_analysis_notarizations(analysis_id, report_artifact_id)
+    return AnalysisNotarizationsListResponse(
+        analysis_id=analysis_id,
+        report_artifact_id=report_artifact_id,
+        total_notarizations=len(records),
+        notarizations=[NotarizationRecordDTO(**r) for r in records]
+    )
+
+
+@router.get(
+    "/notarizations/{notarization_id}",
+    response_model=NotarizationRecordDTO,
+    summary="Get Notarization Record",
+    description="Retrieves proof metadata and local integrity hash for a specific notarization record."
+)
+def get_notarization_by_id(notarization_id: str) -> NotarizationRecordDTO:
+    rec = ForensicRepository.get_notarization_record(notarization_id)
+    if not rec:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Notarization record '{notarization_id}' not found."
+        )
+    return NotarizationRecordDTO(**rec)
+
+
+@router.get(
+    "/notarizations/{notarization_id}/verify",
+    response_model=NotarizationVerificationResponse,
+    summary="Verify Notarization Proof",
+    description="Performs read-only cryptographic verification over the local proof payload, digital signature, report artifact, and manifest chain."
+)
+def verify_notarization_by_id(notarization_id: str) -> NotarizationVerificationResponse:
+    from app.services.notarization_service import NotarizationService
+    res = NotarizationService.verify_notarization(notarization_id)
+    return NotarizationVerificationResponse(**res)
+
 
 
 
