@@ -17,6 +17,7 @@ from app.schemas.api import (
     NotarizationRecordDTO,
     NotarizationVerificationResponse,
     AnalysisNotarizationsListResponse,
+    BlockchainProviderStatusResponse,
 )
 from app.schemas.identity import ActorContext
 from app.services.analysis_service import AnalysisService
@@ -721,6 +722,24 @@ def verify_notarization_by_id(notarization_id: str) -> NotarizationVerificationR
     from app.services.notarization_service import NotarizationService
     res = NotarizationService.verify_notarization(notarization_id)
     return NotarizationVerificationResponse(**res)
+
+
+@router.get(
+    "/notarization/providers/status",
+    response_model=BlockchainProviderStatusResponse,
+    summary="Get Notarization Provider Status",
+    description="Retrieves safe metadata about configured external blockchain anchoring provider without revealing secrets or credentials."
+)
+@router.get(
+    "/notarizations/providers/status",
+    response_model=BlockchainProviderStatusResponse,
+    include_in_schema=False
+)
+def get_notarization_provider_status() -> BlockchainProviderStatusResponse:
+    from app.services.notarization_service import NotarizationService
+    status_data = NotarizationService.get_provider_status()
+    return BlockchainProviderStatusResponse(**status_data)
+
 
 
 

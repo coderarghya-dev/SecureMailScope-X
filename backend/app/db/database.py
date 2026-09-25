@@ -168,6 +168,21 @@ def init_db(db_path: Optional[str] = None):
         existing_cols = {row["name"] for row in cursor.fetchall()}
         if "notarization_id" not in existing_cols:
             cursor.execute("ALTER TABLE notarization_records RENAME TO legacy_notarization_records_old;")
+        else:
+            if "chain_id" not in existing_cols:
+                cursor.execute("ALTER TABLE notarization_records ADD COLUMN chain_id INTEGER;")
+            if "transaction_hash" not in existing_cols:
+                cursor.execute("ALTER TABLE notarization_records ADD COLUMN transaction_hash TEXT;")
+            if "block_number" not in existing_cols:
+                cursor.execute("ALTER TABLE notarization_records ADD COLUMN block_number INTEGER;")
+            if "receipt_status" not in existing_cols:
+                cursor.execute("ALTER TABLE notarization_records ADD COLUMN receipt_status INTEGER;")
+            if "anchored_value" not in existing_cols:
+                cursor.execute("ALTER TABLE notarization_records ADD COLUMN anchored_value TEXT;")
+            if "submitted_at" not in existing_cols:
+                cursor.execute("ALTER TABLE notarization_records ADD COLUMN submitted_at TEXT;")
+            if "external_verification_timestamp" not in existing_cols:
+                cursor.execute("ALTER TABLE notarization_records ADD COLUMN external_verification_timestamp TEXT;")
 
     # 0. Analysts table (Attribution Registry - No credentials or secrets)
     cursor.execute("""
@@ -481,7 +496,7 @@ def init_db(db_path: Optional[str] = None):
         )
     """)
 
-    # 16. Notarization records table (Phase 15 Notarization Abstraction & Local Proof Records)
+    # 16. Notarization records table (Phase 15 & 16 Notarization & External Anchoring)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS notarization_records (
             notarization_id TEXT PRIMARY KEY,
@@ -497,8 +512,15 @@ def init_db(db_path: Optional[str] = None):
             provider_proof_json TEXT,
             provider_proof_sha256 TEXT,
             status TEXT NOT NULL DEFAULT 'LOCAL_PROOF_CREATED',
-            created_at TEXT NOT NULL,
+            chain_id INTEGER,
+            transaction_hash TEXT,
+            block_number INTEGER,
+            receipt_status INTEGER,
+            anchored_value TEXT,
+            submitted_at TEXT,
             confirmed_at TEXT,
+            external_verification_timestamp TEXT,
+            created_at TEXT NOT NULL,
             created_by_actor_id TEXT NOT NULL DEFAULT 'UNATTRIBUTED',
             created_by_actor_display_name TEXT NOT NULL DEFAULT 'Unattributed Analyst',
             actor_identity_source TEXT NOT NULL DEFAULT 'UNKNOWN',
@@ -583,6 +605,7 @@ def init_db(db_path: Optional[str] = None):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_notarization_records_report ON notarization_records(report_artifact_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_notarization_records_sig ON notarization_records(signature_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_notarization_records_proof_sha ON notarization_records(local_proof_sha256);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_notarization_records_tx_hash ON notarization_records(transaction_hash);")
 
     conn.commit()
     conn.close()

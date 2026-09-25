@@ -1585,7 +1585,7 @@ class ForensicRepository:
         return results
 
     # -----------------------------------------------------------------------
-    # 2d. Notarization Provider Records & Local Proofs (Phase 15)
+    # 2d. Notarization Provider Records & Local Proofs (Phase 15 & 16)
     # -----------------------------------------------------------------------
     @classmethod
     def save_notarization_record(
@@ -1603,9 +1603,11 @@ class ForensicRepository:
                     notarization_id, analysis_id, report_artifact_id, signature_id, manifest_version_id,
                     notarization_mode, provider_name, provider_reference, submitted_payload_sha256,
                     local_proof_sha256, provider_proof_json, provider_proof_sha256, status,
-                    created_at, confirmed_at, created_by_actor_id, created_by_actor_display_name,
+                    chain_id, transaction_hash, block_number, receipt_status, anchored_value,
+                    submitted_at, confirmed_at, external_verification_timestamp,
+                    created_at, created_by_actor_id, created_by_actor_display_name,
                     actor_identity_source, actor_attribution_status, schema_version
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     notarization_record["notarization_id"],
@@ -1621,8 +1623,15 @@ class ForensicRepository:
                     notarization_record.get("provider_proof_json"),
                     notarization_record.get("provider_proof_sha256"),
                     notarization_record.get("status", "LOCAL_PROOF_CREATED"),
-                    notarization_record["created_at"],
+                    notarization_record.get("chain_id"),
+                    notarization_record.get("transaction_hash"),
+                    notarization_record.get("block_number"),
+                    notarization_record.get("receipt_status"),
+                    notarization_record.get("anchored_value"),
+                    notarization_record.get("submitted_at"),
                     notarization_record.get("confirmed_at"),
+                    notarization_record.get("external_verification_timestamp"),
+                    notarization_record["created_at"],
                     notarization_record.get("created_by_actor_id", "UNATTRIBUTED"),
                     notarization_record.get("created_by_actor_display_name", "Unattributed Analyst"),
                     notarization_record.get("actor_identity_source", "UNKNOWN"),
@@ -1707,9 +1716,11 @@ class ForensicRepository:
                     notarization_id, analysis_id, report_artifact_id, signature_id, manifest_version_id,
                     notarization_mode, provider_name, provider_reference, submitted_payload_sha256,
                     local_proof_sha256, provider_proof_json, provider_proof_sha256, status,
-                    created_at, confirmed_at, created_by_actor_id, created_by_actor_display_name,
+                    chain_id, transaction_hash, block_number, receipt_status, anchored_value,
+                    submitted_at, confirmed_at, external_verification_timestamp,
+                    created_at, created_by_actor_id, created_by_actor_display_name,
                     actor_identity_source, actor_attribution_status, schema_version
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     notarization_record["notarization_id"],
@@ -1725,8 +1736,15 @@ class ForensicRepository:
                     notarization_record.get("provider_proof_json"),
                     notarization_record.get("provider_proof_sha256"),
                     notarization_record.get("status", "LOCAL_PROOF_CREATED"),
-                    notarization_record["created_at"],
+                    notarization_record.get("chain_id"),
+                    notarization_record.get("transaction_hash"),
+                    notarization_record.get("block_number"),
+                    notarization_record.get("receipt_status"),
+                    notarization_record.get("anchored_value"),
+                    notarization_record.get("submitted_at"),
                     notarization_record.get("confirmed_at"),
+                    notarization_record.get("external_verification_timestamp"),
+                    notarization_record["created_at"],
                     notarization_record.get("created_by_actor_id", "UNATTRIBUTED"),
                     notarization_record.get("created_by_actor_display_name", "Unattributed Analyst"),
                     notarization_record.get("actor_identity_source", "UNKNOWN"),
@@ -1748,6 +1766,48 @@ class ForensicRepository:
         return notarization_record, manifest_version
 
     @classmethod
+    def update_notarization_status_and_receipt(
+        cls,
+        notarization_id: str,
+        status: str,
+        block_number: Optional[int] = None,
+        receipt_status: Optional[int] = None,
+        confirmed_at: Optional[str] = None,
+        external_verification_timestamp: Optional[str] = None,
+        provider_proof_json: Optional[str] = None,
+        provider_proof_sha256: Optional[str] = None,
+        db_path: Optional[str] = None
+    ):
+        """Updates status and verified receipt metadata for a pending/submitted external notarization record."""
+        conn = get_db_connection(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE notarization_records
+            SET status = ?,
+                block_number = COALESCE(?, block_number),
+                receipt_status = COALESCE(?, receipt_status),
+                confirmed_at = COALESCE(?, confirmed_at),
+                external_verification_timestamp = COALESCE(?, external_verification_timestamp),
+                provider_proof_json = COALESCE(?, provider_proof_json),
+                provider_proof_sha256 = COALESCE(?, provider_proof_sha256)
+            WHERE notarization_id = ?
+            """,
+            (
+                status,
+                block_number,
+                receipt_status,
+                confirmed_at,
+                external_verification_timestamp,
+                provider_proof_json,
+                provider_proof_sha256,
+                notarization_id
+            )
+        )
+        conn.commit()
+        conn.close()
+
+    @classmethod
     def get_notarization_record(cls, notarization_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Retrieves a specific notarization proof record by ID."""
         conn = get_db_connection(db_path)
@@ -1758,6 +1818,7 @@ class ForensicRepository:
         if not r:
             return None
 
+        keys = r.keys()
         return {
             "notarization_id": r["notarization_id"],
             "analysis_id": r["analysis_id"],
@@ -1772,8 +1833,15 @@ class ForensicRepository:
             "provider_proof_json": r["provider_proof_json"],
             "provider_proof_sha256": r["provider_proof_sha256"],
             "status": r["status"],
-            "created_at": r["created_at"],
+            "chain_id": r["chain_id"] if "chain_id" in keys else None,
+            "transaction_hash": r["transaction_hash"] if "transaction_hash" in keys else None,
+            "block_number": r["block_number"] if "block_number" in keys else None,
+            "receipt_status": r["receipt_status"] if "receipt_status" in keys else None,
+            "anchored_value": r["anchored_value"] if "anchored_value" in keys else None,
+            "submitted_at": r["submitted_at"] if "submitted_at" in keys else None,
             "confirmed_at": r["confirmed_at"],
+            "external_verification_timestamp": r["external_verification_timestamp"] if "external_verification_timestamp" in keys else None,
+            "created_at": r["created_at"],
             "created_by_actor_id": r["created_by_actor_id"],
             "created_by_actor_display_name": r["created_by_actor_display_name"],
             "actor_identity_source": r["actor_identity_source"],
@@ -1806,6 +1874,7 @@ class ForensicRepository:
 
         results = []
         for r in rows:
+            keys = r.keys()
             results.append({
                 "notarization_id": r["notarization_id"],
                 "analysis_id": r["analysis_id"],
@@ -1820,8 +1889,15 @@ class ForensicRepository:
                 "provider_proof_json": r["provider_proof_json"],
                 "provider_proof_sha256": r["provider_proof_sha256"],
                 "status": r["status"],
-                "created_at": r["created_at"],
+                "chain_id": r["chain_id"] if "chain_id" in keys else None,
+                "transaction_hash": r["transaction_hash"] if "transaction_hash" in keys else None,
+                "block_number": r["block_number"] if "block_number" in keys else None,
+                "receipt_status": r["receipt_status"] if "receipt_status" in keys else None,
+                "anchored_value": r["anchored_value"] if "anchored_value" in keys else None,
+                "submitted_at": r["submitted_at"] if "submitted_at" in keys else None,
                 "confirmed_at": r["confirmed_at"],
+                "external_verification_timestamp": r["external_verification_timestamp"] if "external_verification_timestamp" in keys else None,
+                "created_at": r["created_at"],
                 "created_by_actor_id": r["created_by_actor_id"],
                 "created_by_actor_display_name": r["created_by_actor_display_name"],
                 "actor_identity_source": r["actor_identity_source"],

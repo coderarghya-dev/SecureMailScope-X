@@ -1,20 +1,30 @@
 """
-SecureMailScope X - Forensic Notarization Provider Abstraction & Local Proof Engine (Phase 15)
+SecureMailScope X - Forensic Notarization Provider Abstraction & Real Blockchain Anchoring (Phase 16)
 Provides pluggable notarization architecture, deterministic local integrity proofs,
-immutable manifest version linkage, and side-effect-free proof verification.
+optional real EVM-compatible blockchain anchoring, immutable manifest linkage,
+and side-effect-free proof verification.
 
 CRITICAL TRUST BOUNDARY:
 - LOCAL PROOF != BLOCKCHAIN.
-- Default system mode is strictly LOCAL_ONLY.
-- Never generates fake transaction hashes, block numbers, chain IDs, explorer URLs,
-  or timestamp authority tokens.
-- Zero outbound network calls are made in LOCAL_ONLY mode.
+- Default system mode is strictly LOCAL_ONLY and fully offline.
+- A record may be called BLOCKCHAIN_ANCHORED / CONFIRMED ONLY IF:
+  1. A real external blockchain RPC was contacted,
+  2. A real transaction was submitted,
+  3. A real transaction hash was returned,
+  4. A transaction receipt was obtained with status == success,
+  5. Chain ID matches configured chain,
+  6. Anchored payload matches SecureMailScope local proof SHA-256,
+  7. Verification independently re-fetches and validates transaction and receipt.
+- Zero simulated/fake transaction hashes, block numbers, or explorer URLs.
+- Private keys and RPC credentials are never stored in SQLite, logged, or returned in API responses.
 """
 
 import os
 import json
 import uuid
 import hashlib
+import urllib.request
+import urllib.error
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Tuple
@@ -38,10 +48,17 @@ from app.services.custody_service import CustodyService
 from app.services.signature_service import SignatureService
 
 LOCAL_PROOF_CONTEXT_V1 = "SECUREMAILSCOPE_LOCAL_NOTARIZATION_V1"
+CHAIN_ANCHOR_PREFIX_V1 = "SECUREMAILSCOPE_CHAIN_ANCHOR_V1:"
 
 # Notarization Modes
 NOTARIZATION_MODE_LOCAL_ONLY = "LOCAL_ONLY"
 NOTARIZATION_MODE_EXTERNAL_PROVIDER = "EXTERNAL_PROVIDER"
+
+# Submission & Anchoring Modes (Phase 16.5)
+SUBMISSION_MODE_RPC_MANAGED_ACCOUNT = "RPC_MANAGED_ACCOUNT"
+LOCAL_PRIVATE_KEY_SIGNING_STATUS = "NOT_IMPLEMENTED"
+ANCHOR_MODE_EVM_DATA_TRANSACTION = "EVM_DATA_TRANSACTION"
+IMPLEMENTATION_STATUS_MOCK_TESTED = "IMPLEMENTED_AND_MOCK_TESTED"
 
 # Status Constants
 STATUS_NOT_REQUESTED = "NOT_REQUESTED"
@@ -56,12 +73,33 @@ STATUS_UNSUPPORTED = "UNSUPPORTED"
 
 # Verification Status Constants
 VERIFY_STATUS_VERIFIED_LOCAL_PROOF = "VERIFIED_LOCAL_PROOF"
+VERIFY_STATUS_VERIFIED_EXTERNAL_ANCHOR = "VERIFIED_EXTERNAL_ANCHOR"
+VERIFY_STATUS_TRANSACTION_NOT_FOUND = "TRANSACTION_NOT_FOUND"
+VERIFY_STATUS_RECEIPT_PENDING = "RECEIPT_PENDING"
+VERIFY_STATUS_TRANSACTION_REVERTED = "TRANSACTION_REVERTED"
+VERIFY_STATUS_CHAIN_ID_MISMATCH = "CHAIN_ID_MISMATCH"
+VERIFY_STATUS_ANCHOR_VALUE_MISMATCH = "ANCHOR_VALUE_MISMATCH"
+VERIFY_STATUS_SENDER_ADDRESS_MISMATCH = "SENDER_ADDRESS_MISMATCH"
+VERIFY_STATUS_TARGET_ADDRESS_MISMATCH = "TARGET_ADDRESS_MISMATCH"
+VERIFY_STATUS_RECEIPT_TRANSACTION_MISMATCH = "RECEIPT_TRANSACTION_MISMATCH"
+VERIFY_STATUS_VALUE_NOT_ZERO = "VALUE_NOT_ZERO"
+VERIFY_STATUS_CONFIGURATION_INCOMPLETE = "CONFIGURATION_INCOMPLETE"
+VERIFY_STATUS_PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
+VERIFY_STATUS_LOCAL_PROOF_INVALID = "LOCAL_PROOF_INVALID"
 VERIFY_STATUS_INTEGRITY_FAILED = "INTEGRITY_FAILED"
 VERIFY_STATUS_SIGNATURE_INVALID = "SIGNATURE_INVALID"
 VERIFY_STATUS_REPORT_INTEGRITY_FAILED = "REPORT_INTEGRITY_FAILED"
 VERIFY_STATUS_MANIFEST_INTEGRITY_FAILED = "MANIFEST_INTEGRITY_FAILED"
 VERIFY_STATUS_INCOMPLETE = "INCOMPLETE"
 VERIFY_STATUS_UNSUPPORTED_PROVIDER = "UNSUPPORTED_PROVIDER"
+
+
+def is_valid_evm_address(addr: Optional[str]) -> bool:
+    """Validates 20-byte hex EVM address shape."""
+    if not addr or not isinstance(addr, str):
+        return False
+    import re
+    return bool(re.match(r"^0x[0-9a-fA-F]{40}$", addr))
 
 
 class NotarizationError(Exception):
@@ -149,6 +187,12 @@ class LocalOnlyNotarizationProvider(NotarizationProvider):
             "local_proof_sha256": proof_hash,
             "provider_name": None,
             "provider_reference": None,
+            "chain_id": None,
+            "transaction_hash": None,
+            "block_number": None,
+            "receipt_status": None,
+            "anchored_value": None,
+            "submitted_at": None,
             "submitted_payload_sha256": compute_sha256(canonical_bytes),
             "provider_proof_json": None,
             "provider_proof_sha256": None,
@@ -165,9 +209,7 @@ class LocalOnlyNotarizationProvider(NotarizationProvider):
 
 class ExternalNotarizationProvider(NotarizationProvider):
     """
-    Interface for external distributed or third-party notarization.
-    If no actual external provider is configured or integrated, explicitly
-    raises ProviderUnavailableError and refuses to fake transaction receipts.
+    Base interface for external distributed or third-party notarization.
     """
 
     def __init__(
@@ -176,36 +218,438 @@ class ExternalNotarizationProvider(NotarizationProvider):
         api_url: Optional[str] = None,
         api_key: Optional[str] = None,
     ):
-        self.provider_name = provider_name or os.environ.get("SMS_NOTARIZATION_PROVIDER")
+        self.provider_name = provider_name or os.environ.get("SMS_NOTARIZATION_PROVIDER", "EVM_JSON_RPC")
         self.api_url = api_url or os.environ.get("SMS_NOTARIZATION_API_URL")
         self.api_key = api_key or os.environ.get("SMS_NOTARIZATION_API_KEY")
 
     def is_configured(self) -> bool:
-        return bool(self.provider_name and self.api_url)
+        return bool(self.api_url)
 
     def submit(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        if not self.is_configured():
-            raise ProviderUnavailableError(
-                "External notarization provider is not configured. "
-                "No external blockchain or timestamping service is active. "
-                "Use LOCAL_ONLY mode."
-            )
-        raise UnsupportedProviderError(
-            f"External provider '{self.provider_name}' integration is not implemented. "
-            "SecureMailScope X does not simulate or fake blockchain transactions."
-        )
+        raise NotImplementedError
 
     def verify(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        raise NotImplementedError
+
+
+class EVMJsonRpcBlockchainProvider(ExternalNotarizationProvider):
+    """
+    Concrete EVM-compatible JSON-RPC blockchain anchoring provider (Phase 16 & 16.5).
+    Communicates via standard JSON-RPC 2.0 (eth_chainId, eth_sendTransaction,
+    eth_getTransactionByHash, eth_getTransactionReceipt).
+    Anchors strictly the domain-separated proof hash:
+      SECUREMAILSCOPE_CHAIN_ANCHOR_V1:<local_proof_sha256>
+
+    TRUST BOUNDARY & SIGNING SPECIFICATION:
+    - Submission mode is strictly RPC_MANAGED_ACCOUNT (the RPC node/provider signs the transaction).
+    - Local private key signing is NOT_IMPLEMENTED.
+    - Zero-value transfers only (value = 0x0). Zero funds transfer.
+    - Explicit sender (SMS_BLOCKCHAIN_FROM_ADDRESS) and anchor target (SMS_BLOCKCHAIN_ANCHOR_ADDRESS) required.
+    - Zero-address fallback is strictly prohibited.
+    """
+
+    def __init__(
+        self,
+        rpc_url: Optional[str] = None,
+        chain_id: Optional[int] = None,
+        from_address: Optional[str] = None,
+        anchor_address: Optional[str] = None,
+        timeout: float = 5.0,
+    ):
+        super().__init__(provider_name="EVM_JSON_RPC")
+        self._rpc_url = rpc_url
+        self._chain_id = chain_id
+        self._from_address = from_address
+        self._anchor_address = anchor_address
+        self.timeout = timeout
+
+    @property
+    def enabled(self) -> bool:
+        return os.environ.get("SMS_BLOCKCHAIN_ENABLED", "false").lower() in ("true", "1", "yes")
+
+    @property
+    def rpc_url(self) -> str:
+        return self._rpc_url or os.environ.get("SMS_BLOCKCHAIN_RPC_URL", "")
+
+    @property
+    def configured_chain_id(self) -> Optional[int]:
+        if self._chain_id is not None:
+            return self._chain_id
+        cid_env = os.environ.get("SMS_BLOCKCHAIN_CHAIN_ID")
+        if cid_env:
+            try:
+                return int(cid_env, 16) if cid_env.startswith("0x") else int(cid_env)
+            except ValueError:
+                return None
+        return None
+
+    @property
+    def from_address(self) -> str:
+        return self._from_address or os.environ.get("SMS_BLOCKCHAIN_FROM_ADDRESS", "")
+
+    @property
+    def anchor_address(self) -> str:
+        return (
+            self._anchor_address
+            or os.environ.get("SMS_BLOCKCHAIN_ANCHOR_ADDRESS", "")
+            or os.environ.get("SMS_BLOCKCHAIN_CONTRACT_ADDRESS", "")
+        )
+
+    def is_configured(self) -> bool:
+        return bool(
+            self.enabled
+            and self.rpc_url
+            and self.from_address
+            and self.anchor_address
+            and is_valid_evm_address(self.from_address)
+            and is_valid_evm_address(self.anchor_address)
+        )
+
+    def _rpc_request(self, method: str, params: List[Any]) -> Any:
+        """
+        Executes bounded JSON-RPC 2.0 request over HTTP/HTTPS with strict timeout.
+        """
+        if not self.rpc_url:
+            raise ProviderUnavailableError("EVM JSON-RPC URL is not configured.")
+
+        body = json.dumps({
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+            "id": 1,
+        }).encode("utf-8")
+
+        req = urllib.request.Request(
+            self.rpc_url,
+            data=body,
+            headers={"Content-Type": "application/json", "User-Agent": "SecureMailScope-Anchor/1.0"},
+            method="POST"
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as response:
+                res_bytes = response.read()
+                data = json.loads(res_bytes.decode("utf-8"))
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError) as e:
+            raise ProviderUnavailableError(f"RPC communication failed for method '{method}': {str(e)}")
+        except Exception as e:
+            raise ProviderUnavailableError(f"RPC communication error for method '{method}': {str(e)}")
+
+        if "error" in data and data["error"]:
+            err_msg = data["error"].get("message", str(data["error"]))
+            raise NotarizationError(f"RPC returned error for '{method}': {err_msg}")
+
+        return data.get("result")
+
+    def get_chain_id(self) -> int:
+        """Queries eth_chainId and returns integer chain ID."""
+        res = self._rpc_request("eth_chainId", [])
+        if isinstance(res, str):
+            return int(res, 16) if res.startswith("0x") else int(res)
+        if isinstance(res, int):
+            return res
+        raise ProviderUnavailableError(f"Unexpected eth_chainId response: {res}")
+
+    def get_transaction(self, tx_hash: str) -> Optional[Dict[str, Any]]:
+        """Queries eth_getTransactionByHash."""
+        return self._rpc_request("eth_getTransactionByHash", [tx_hash])
+
+    def get_receipt(self, tx_hash: str) -> Optional[Dict[str, Any]]:
+        """Queries eth_getTransactionReceipt."""
+        return self._rpc_request("eth_getTransactionReceipt", [tx_hash])
+
+    def submit(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Submits real EVM anchoring transaction containing domain-separated proof hash.
+        Enforces RPC_MANAGED_ACCOUNT signing mode, from_address verification, anchor_address validation,
+        and value = 0x0.
+        """
+        if not self.enabled or not self.rpc_url:
+            raise ProviderUnavailableError(
+                "External blockchain provider is not configured or disabled. "
+                "Set SMS_BLOCKCHAIN_ENABLED=true and SMS_BLOCKCHAIN_RPC_URL to enable."
+            )
+
+        if not self.from_address or not is_valid_evm_address(self.from_address):
+            raise ProviderUnavailableError(
+                f"Configured SMS_BLOCKCHAIN_FROM_ADDRESS is missing or invalid EVM address: '{self.from_address}'."
+            )
+
+        if not self.anchor_address or not is_valid_evm_address(self.anchor_address):
+            raise ProviderUnavailableError(
+                f"Configured SMS_BLOCKCHAIN_ANCHOR_ADDRESS is missing or invalid EVM address: '{self.anchor_address}'. "
+                "Zero-address fallback is strictly prohibited."
+            )
+
+        # 1. Validate RPC Chain ID
+        rpc_chain_id = self.get_chain_id()
+        if self.configured_chain_id is not None and rpc_chain_id != self.configured_chain_id:
+            raise NotarizationError(
+                f"RPC Chain ID mismatch: configured {self.configured_chain_id}, connected {rpc_chain_id}."
+            )
+
+        # 2. Compute Anchored Value
+        canonical_bytes = canonical_json_bytes(payload)
+        local_proof_sha256 = compute_sha256(canonical_bytes)
+        anchored_value = f"{CHAIN_ANCHOR_PREFIX_V1}{local_proof_sha256}"
+        data_hex = "0x" + anchored_value.encode("utf-8").hex()
+
+        # 3. Construct Safe Zero-Value Data Transaction
+        tx_dict: Dict[str, Any] = {
+            "from": self.from_address,
+            "to": self.anchor_address,
+            "data": data_hex,
+            "value": "0x0",
+        }
+
+        # 4. Submit Transaction
+        tx_hash = self._rpc_request("eth_sendTransaction", [tx_dict])
+        if not tx_hash or not isinstance(tx_hash, str) or not tx_hash.startswith("0x"):
+            raise NotarizationError(f"RPC did not return a valid transaction hash: {tx_hash}")
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        # 5. Re-read Transaction to Verify Sender & Target
+        try:
+            submitted_tx = self.get_transaction(tx_hash)
+            if submitted_tx:
+                tx_from = submitted_tx.get("from")
+                if tx_from and tx_from.lower() != self.from_address.lower():
+                    raise NotarizationError(
+                        f"RPC submitted from unexpected sender address: expected {self.from_address}, got {tx_from} (SENDER_ADDRESS_MISMATCH)."
+                    )
+                tx_to = submitted_tx.get("to")
+                if tx_to and tx_to.lower() != self.anchor_address.lower():
+                    raise NotarizationError(
+                        f"RPC submitted to unexpected target address: expected {self.anchor_address}, got {tx_to} (TARGET_ADDRESS_MISMATCH)."
+                    )
+                tx_val = submitted_tx.get("value")
+                if tx_val not in ("0x0", "0x00", "0x", "0", 0, None):
+                    raise NotarizationError(
+                        f"Transaction value must be strictly zero, got {tx_val} (VALUE_NOT_ZERO)."
+                    )
+        except NotarizationError:
+            raise
+        except Exception:
+            pass
+
+        # 6. Query Initial Receipt
+        receipt = None
+        try:
+            receipt = self.get_receipt(tx_hash)
+        except Exception:
+            receipt = None
+
+        receipt_status: Optional[int] = None
+        block_number: Optional[int] = None
+        confirmed_at: Optional[str] = None
+        status = STATUS_SUBMITTED
+
+        if receipt:
+            # Verify receipt transaction hash matches submitted tx hash
+            r_tx_hash = receipt.get("transactionHash")
+            if r_tx_hash and r_tx_hash.lower() != tx_hash.lower():
+                raise NotarizationError(
+                    f"Receipt transaction hash mismatch: submitted {tx_hash}, receipt returned {r_tx_hash} (RECEIPT_TRANSACTION_MISMATCH)."
+                )
+
+            raw_status = receipt.get("status")
+            if isinstance(raw_status, str):
+                receipt_status = int(raw_status, 16) if raw_status.startswith("0x") else int(raw_status)
+            elif isinstance(raw_status, int):
+                receipt_status = raw_status
+
+            raw_block = receipt.get("blockNumber")
+            if isinstance(raw_block, str):
+                block_number = int(raw_block, 16) if raw_block.startswith("0x") else int(raw_block)
+            elif isinstance(raw_block, int):
+                block_number = raw_block
+
+            if receipt_status == 1:
+                status = STATUS_CONFIRMED
+                confirmed_at = now_iso
+            elif receipt_status == 0:
+                status = STATUS_VERIFICATION_FAILED
+            else:
+                status = STATUS_SUBMITTED
+
+        provider_proof = {
+            "chain_id": rpc_chain_id,
+            "transaction_hash": tx_hash,
+            "submission_mode": SUBMISSION_MODE_RPC_MANAGED_ACCOUNT,
+            "from_address": self.from_address,
+            "anchor_address": self.anchor_address,
+            "receipt": receipt,
+        }
+        proof_json = json.dumps(provider_proof)
+        proof_sha256 = compute_sha256(canonical_json_bytes(provider_proof))
+
+        return {
+            "status": status,
+            "notarization_mode": NOTARIZATION_MODE_EXTERNAL_PROVIDER,
+            "local_proof_sha256": local_proof_sha256,
+            "provider_name": self.provider_name,
+            "provider_reference": tx_hash,
+            "chain_id": rpc_chain_id,
+            "transaction_hash": tx_hash,
+            "block_number": block_number,
+            "receipt_status": receipt_status,
+            "anchored_value": anchored_value,
+            "submitted_at": now_iso,
+            "confirmed_at": confirmed_at,
+            "submitted_payload_sha256": local_proof_sha256,
+            "provider_proof_json": proof_json,
+            "provider_proof_sha256": proof_sha256,
+        }
+
+    def verify(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Independently re-queries the blockchain RPC to verify transaction, receipt, chain ID,
+        sender address, target address, zero value, and anchored payload.
+        """
         if not self.is_configured():
             return {
-                "verification_status": VERIFY_STATUS_UNSUPPORTED_PROVIDER,
-                "provider_name": self.provider_name or "UNCONFIGURED_EXTERNAL",
-                "details": "External notarization provider is not configured.",
+                "verification_status": VERIFY_STATUS_PROVIDER_UNAVAILABLE,
+                "provider_name": self.provider_name,
+                "details": "Blockchain RPC is not configured or disabled.",
             }
+
+        tx_hash = record.get("transaction_hash")
+        expected_chain_id = record.get("chain_id")
+        expected_anchored_val = record.get("anchored_value")
+        stored_proof_hash = record.get("local_proof_sha256")
+
+        if not tx_hash:
+            return {
+                "verification_status": VERIFY_STATUS_INCOMPLETE,
+                "provider_name": self.provider_name,
+                "details": "Notarization record is missing transaction_hash.",
+            }
+
+        # 1. Verify RPC Chain ID
+        try:
+            rpc_chain_id = self.get_chain_id()
+        except Exception as e:
+            return {
+                "verification_status": VERIFY_STATUS_PROVIDER_UNAVAILABLE,
+                "provider_name": self.provider_name,
+                "details": f"Failed to connect to RPC to verify chain ID: {str(e)}",
+            }
+
+        if expected_chain_id is not None and rpc_chain_id != expected_chain_id:
+            return {
+                "verification_status": VERIFY_STATUS_CHAIN_ID_MISMATCH,
+                "provider_name": self.provider_name,
+                "details": f"Chain ID mismatch: record expects {expected_chain_id}, active RPC returned {rpc_chain_id}",
+            }
+
+        # 2. Query Transaction
+        try:
+            tx = self.get_transaction(tx_hash)
+        except Exception as e:
+            return {
+                "verification_status": VERIFY_STATUS_PROVIDER_UNAVAILABLE,
+                "provider_name": self.provider_name,
+                "details": f"Failed to query transaction '{tx_hash}': {str(e)}",
+            }
+
+        if not tx:
+            return {
+                "verification_status": VERIFY_STATUS_TRANSACTION_NOT_FOUND,
+                "provider_name": self.provider_name,
+                "details": f"Transaction '{tx_hash}' not found on blockchain.",
+            }
+
+        # 3. Verify Sender & Target Address Match
+        tx_from = tx.get("from")
+        if tx_from and self.from_address and tx_from.lower() != self.from_address.lower():
+            return {
+                "verification_status": VERIFY_STATUS_SENDER_ADDRESS_MISMATCH,
+                "provider_name": self.provider_name,
+                "details": f"Sender address mismatch: expected {self.from_address}, transaction on chain from {tx_from}",
+            }
+
+        tx_to = tx.get("to")
+        if tx_to and self.anchor_address and tx_to.lower() != self.anchor_address.lower():
+            return {
+                "verification_status": VERIFY_STATUS_TARGET_ADDRESS_MISMATCH,
+                "provider_name": self.provider_name,
+                "details": f"Target address mismatch: expected {self.anchor_address}, transaction on chain to {tx_to}",
+            }
+
+        tx_val = tx.get("value")
+        if tx_val not in ("0x0", "0x00", "0x", "0", 0, None):
+            return {
+                "verification_status": VERIFY_STATUS_VALUE_NOT_ZERO,
+                "provider_name": self.provider_name,
+                "details": f"Transaction value must be strictly zero, on chain value is {tx_val}",
+            }
+
+        # 4. Query Receipt
+        try:
+            receipt = self.get_receipt(tx_hash)
+        except Exception as e:
+            return {
+                "verification_status": VERIFY_STATUS_PROVIDER_UNAVAILABLE,
+                "provider_name": self.provider_name,
+                "details": f"Failed to query receipt for '{tx_hash}': {str(e)}",
+            }
+
+        if not receipt:
+            return {
+                "verification_status": VERIFY_STATUS_RECEIPT_PENDING,
+                "provider_name": self.provider_name,
+                "details": f"Transaction receipt for '{tx_hash}' is pending confirmation.",
+            }
+
+        # Verify receipt tx hash
+        r_tx_hash = receipt.get("transactionHash")
+        if r_tx_hash and r_tx_hash.lower() != tx_hash.lower():
+            return {
+                "verification_status": VERIFY_STATUS_RECEIPT_TRANSACTION_MISMATCH,
+                "provider_name": self.provider_name,
+                "details": f"Receipt transaction hash mismatch: queried {tx_hash}, receipt has {r_tx_hash}",
+            }
+
+        # 5. Check Receipt Status
+        raw_status = receipt.get("status")
+        if isinstance(raw_status, str):
+            r_status = int(raw_status, 16) if raw_status.startswith("0x") else int(raw_status)
+        elif isinstance(raw_status, int):
+            r_status = raw_status
+        else:
+            r_status = None
+
+        if r_status != 1:
+            return {
+                "verification_status": VERIFY_STATUS_TRANSACTION_REVERTED,
+                "provider_name": self.provider_name,
+                "details": f"Transaction '{tx_hash}' execution reverted on chain (status={r_status}).",
+            }
+
+        # 6. Verify Anchored Payload / Calldata
+        tx_data = tx.get("input") or tx.get("data") or ""
+        expected_prefix_anchor = f"{CHAIN_ANCHOR_PREFIX_V1}{stored_proof_hash}"
+        expected_hex = "0x" + expected_prefix_anchor.encode("utf-8").hex()
+
+        # Check if calldata matches or contains the expected anchor
+        if tx_data.lower() != expected_hex.lower() and expected_anchored_val and tx_data.lower() != ("0x" + expected_anchored_val.encode("utf-8").hex()).lower():
+            return {
+                "verification_status": VERIFY_STATUS_ANCHOR_VALUE_MISMATCH,
+                "provider_name": self.provider_name,
+                "details": f"Transaction calldata does not match expected anchored proof hash: got {tx_data[:32]}..., expected {expected_hex[:32]}...",
+            }
+
+        raw_block = receipt.get("blockNumber")
+        block_num = int(raw_block, 16) if isinstance(raw_block, str) and raw_block.startswith("0x") else raw_block
+
         return {
-            "verification_status": VERIFY_STATUS_UNSUPPORTED_PROVIDER,
+            "verification_status": VERIFY_STATUS_VERIFIED_EXTERNAL_ANCHOR,
             "provider_name": self.provider_name,
-            "details": f"External provider verification for '{self.provider_name}' is not implemented.",
+            "chain_id": rpc_chain_id,
+            "transaction_hash": tx_hash,
+            "block_number": block_num,
+            "details": f"External EVM blockchain anchor verified nominal on Chain ID {rpc_chain_id} in Block {block_num}.",
         }
 
 
@@ -222,16 +666,61 @@ class NotarizationService:
 
     _providers: Dict[str, NotarizationProvider] = {
         NOTARIZATION_MODE_LOCAL_ONLY: LocalOnlyNotarizationProvider(),
-        NOTARIZATION_MODE_EXTERNAL_PROVIDER: ExternalNotarizationProvider(),
+        NOTARIZATION_MODE_EXTERNAL_PROVIDER: EVMJsonRpcBlockchainProvider(),
     }
 
     @classmethod
     def get_provider(cls, mode: str) -> NotarizationProvider:
         if mode not in cls._providers:
             if mode == NOTARIZATION_MODE_EXTERNAL_PROVIDER:
-                return ExternalNotarizationProvider()
+                return EVMJsonRpcBlockchainProvider()
             raise UnsupportedProviderError(f"Unsupported notarization mode: '{mode}'.")
         return cls._providers[mode]
+
+    @classmethod
+    def get_provider_status(cls) -> Dict[str, Any]:
+        """
+        Safe provider status report: never returns private keys, passwords, or RPC credentials.
+        Reports explicit submission mode and confirms local private key signing is NOT_IMPLEMENTED.
+        """
+        provider = cls.get_provider(NOTARIZATION_MODE_EXTERNAL_PROVIDER)
+        if isinstance(provider, EVMJsonRpcBlockchainProvider):
+            is_cfg = provider.is_configured()
+            conn_status = "NOT_CONFIGURED"
+            active_chain_id = provider.configured_chain_id
+            if is_cfg:
+                try:
+                    rpc_cid = provider.get_chain_id()
+                    conn_status = "CONNECTED"
+                    active_chain_id = rpc_cid
+                except Exception:
+                    conn_status = "UNAVAILABLE"
+            return {
+                "configured": is_cfg,
+                "provider_type": "EVM_JSON_RPC",
+                "submission_mode": SUBMISSION_MODE_RPC_MANAGED_ACCOUNT,
+                "chain_id": active_chain_id,
+                "connection_status": conn_status,
+                "network_connection_status": conn_status,
+                "local_private_key_signing": LOCAL_PRIVATE_KEY_SIGNING_STATUS,
+                "implementation_status": IMPLEMENTATION_STATUS_MOCK_TESTED,
+                "live_chain_verified": False,
+                "from_address_configured": bool(provider.from_address),
+                "anchor_address_configured": bool(provider.anchor_address),
+            }
+        return {
+            "configured": False,
+            "provider_type": "LOCAL_ONLY",
+            "submission_mode": "NONE",
+            "chain_id": None,
+            "connection_status": "NOT_CONFIGURED",
+            "network_connection_status": "NOT_CONFIGURED",
+            "local_private_key_signing": LOCAL_PRIVATE_KEY_SIGNING_STATUS,
+            "implementation_status": IMPLEMENTATION_STATUS_MOCK_TESTED,
+            "live_chain_verified": False,
+            "from_address_configured": False,
+            "anchor_address_configured": False,
+        }
 
     @classmethod
     def create_notarization_proof(
@@ -245,7 +734,7 @@ class NotarizationService:
     ) -> Dict[str, Any]:
         """
         Creates a deterministic local integrity proof (or external submission) for a signed report artifact,
-        and atomically appends a NOTARIZATION_LINKAGE_MANIFEST version.
+        and atomically appends a NOTARIZATION_LINKAGE_MANIFEST or EXTERNAL_ANCHOR_LINKAGE_MANIFEST version.
         """
         act = actor or ActorContext.unattributed()
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -341,6 +830,7 @@ class NotarizationService:
         provider_result = provider.submit(proof_payload)
 
         notarization_id = f"notz_{analysis_id[:12]}_{uuid.uuid4().hex[:8]}"
+        rec_status = provider_result.get("status", STATUS_LOCAL_PROOF_CREATED)
 
         notarization_dict = {
             "notarization_id": notarization_id,
@@ -351,11 +841,17 @@ class NotarizationService:
             "notarization_mode": mode,
             "provider_name": provider_result.get("provider_name"),
             "provider_reference": provider_result.get("provider_reference"),
+            "chain_id": provider_result.get("chain_id"),
+            "transaction_hash": provider_result.get("transaction_hash"),
+            "block_number": provider_result.get("block_number"),
+            "receipt_status": provider_result.get("receipt_status"),
+            "anchored_value": provider_result.get("anchored_value"),
+            "submitted_at": provider_result.get("submitted_at"),
             "submitted_payload_sha256": provider_result.get("submitted_payload_sha256", local_proof_sha256),
             "local_proof_sha256": local_proof_sha256,
             "provider_proof_json": provider_result.get("provider_proof_json"),
             "provider_proof_sha256": provider_result.get("provider_proof_sha256"),
-            "status": provider_result.get("status", STATUS_LOCAL_PROOF_CREATED),
+            "status": rec_status,
             "created_at": now_iso,
             "confirmed_at": provider_result.get("confirmed_at"),
             "created_by_actor_id": act.actor_id,
@@ -365,7 +861,7 @@ class NotarizationService:
             "schema_version": CURRENT_SCHEMA_VERSION,
         }
 
-        # 8. Construct NEW Manifest Version (NOTARIZATION_LINKAGE_MANIFEST)
+        # 8. Construct NEW Manifest Version
         next_vnum = latest_manifest["version_number"] + 1
         new_manifest_vid = f"cmv_{analysis_id[:12]}_v{next_vnum}_{uuid.uuid4().hex[:8]}"
 
@@ -381,7 +877,13 @@ class NotarizationService:
             "created_at": now_iso,
         }]
 
-        new_manifest_payload = {
+        manifest_type = (
+            "EXTERNAL_ANCHOR_LINKAGE_MANIFEST"
+            if rec_status == STATUS_CONFIRMED and mode == NOTARIZATION_MODE_EXTERNAL_PROVIDER
+            else "NOTARIZATION_LINKAGE_MANIFEST"
+        )
+
+        new_manifest_payload: Dict[str, Any] = {
             "actor": {
                 "actor_display_name": act.actor_display_name,
                 "actor_id": act.actor_id,
@@ -397,12 +899,24 @@ class NotarizationService:
             "linked_notarizations": new_linked_notzs,
             "linked_report_artifacts": prev_dict.get("linked_report_artifacts", []),
             "linked_signatures": prev_dict.get("linked_signatures", []),
-            "manifest_type": "NOTARIZATION_LINKAGE_MANIFEST",
+            "manifest_type": manifest_type,
             "observed_result_sha256": prev_dict.get("observed_result_sha256", ""),
             "previous_manifest_sha256": source_manifest_hash,
             "session_hashes": prev_dict.get("session_hashes", []),
             "version_number": next_vnum,
         }
+
+        if manifest_type == "EXTERNAL_ANCHOR_LINKAGE_MANIFEST":
+            prev_anchors = prev_dict.get("linked_external_anchors") or []
+            new_manifest_payload["linked_external_anchors"] = list(prev_anchors) + [{
+                "notarization_id": notarization_id,
+                "transaction_hash": notarization_dict["transaction_hash"],
+                "chain_id": notarization_dict["chain_id"],
+                "block_number": notarization_dict["block_number"],
+                "anchored_value": notarization_dict["anchored_value"],
+                "previous_manifest_sha256": source_manifest_hash,
+                "confirmed_at": notarization_dict["confirmed_at"],
+            }]
 
         new_manifest_json = canonical_json_str(new_manifest_payload)
         new_manifest_hash = compute_sha256(new_manifest_json.encode("utf-8"))
@@ -411,7 +925,7 @@ class NotarizationService:
             "manifest_version_id": new_manifest_vid,
             "analysis_id": analysis_id,
             "version_number": next_vnum,
-            "manifest_type": "NOTARIZATION_LINKAGE_MANIFEST",
+            "manifest_type": manifest_type,
             "parent_manifest_version_id": source_manifest_id,
             "previous_manifest_sha256": source_manifest_hash,
             "manifest_json": new_manifest_json,
@@ -423,7 +937,11 @@ class NotarizationService:
             "actor_identity_source": act.actor_identity_source,
             "actor_attribution_status": act.actor_attribution_status,
             "sealed": True,
-            "purpose": f"Link notarization proof {notarization_id} ({mode}) for report {report_artifact_id}",
+            "purpose": (
+                f"Link confirmed external blockchain anchor {notarization_dict.get('transaction_hash')} (Chain {notarization_dict.get('chain_id')})"
+                if manifest_type == "EXTERNAL_ANCHOR_LINKAGE_MANIFEST"
+                else f"Link notarization proof {notarization_id} ({mode}) for report {report_artifact_id}"
+            ),
             "schema_version": CURRENT_SCHEMA_VERSION,
         }
 
@@ -434,23 +952,51 @@ class NotarizationService:
             db_path=db_path
         )
 
-        # 10. Append Custody Audit Event: NOTARIZATION_LOCAL_PROOF_CREATED
+        # 10. Append Custody Audit Events
         custody_rec = CustodyService.get_record(analysis_id)
         if custody_rec:
-            event_type = (
-                "NOTARIZATION_LOCAL_PROOF_CREATED"
-                if mode == NOTARIZATION_MODE_LOCAL_ONLY
-                else "NOTARIZATION_SUBMISSION_REQUESTED"
-            )
-            custody_rec._append_event(
-                event_type=event_type,
-                artifact_hash=local_proof_sha256,
-                details=(
-                    f"Notarization record {notarization_id} ({mode}) created for report {report_artifact_id} "
-                    f"and signature {signature_id} (Proof SHA-256: {local_proof_sha256[:16]}... Linked in Manifest v{next_vnum})"
-                ),
-                actor=act,
-            )
+            if mode == NOTARIZATION_MODE_LOCAL_ONLY:
+                custody_rec._append_event(
+                    event_type="NOTARIZATION_LOCAL_PROOF_CREATED",
+                    artifact_hash=local_proof_sha256,
+                    details=(
+                        f"Local notarization record {notarization_id} created for report {report_artifact_id} "
+                        f"and signature {signature_id} (Proof SHA-256: {local_proof_sha256[:16]}... Linked in Manifest v{next_vnum})"
+                    ),
+                    actor=act,
+                )
+            else:
+                custody_rec._append_event(
+                    event_type="BLOCKCHAIN_ANCHOR_SUBMISSION_REQUESTED",
+                    artifact_hash=local_proof_sha256,
+                    details=f"Blockchain anchor submission requested for notarization {notarization_id}",
+                    actor=act,
+                )
+                if notarization_dict.get("transaction_hash"):
+                    custody_rec._append_event(
+                        event_type="BLOCKCHAIN_ANCHOR_SUBMITTED",
+                        artifact_hash=notarization_dict["transaction_hash"],
+                        details=f"Transaction {notarization_dict['transaction_hash']} submitted to Chain ID {notarization_dict.get('chain_id')}",
+                        actor=act,
+                    )
+                if rec_status == STATUS_CONFIRMED:
+                    custody_rec._append_event(
+                        event_type="BLOCKCHAIN_ANCHOR_CONFIRMED",
+                        artifact_hash=notarization_dict["transaction_hash"],
+                        details=(
+                            f"Blockchain anchor confirmed in Block {notarization_dict.get('block_number')} "
+                            f"(Tx: {notarization_dict.get('transaction_hash')}, Chain ID: {notarization_dict.get('chain_id')})"
+                        ),
+                        actor=act,
+                    )
+                elif rec_status == STATUS_VERIFICATION_FAILED:
+                    custody_rec._append_event(
+                        event_type="BLOCKCHAIN_ANCHOR_VERIFICATION_FAILED",
+                        artifact_hash=notarization_dict.get("transaction_hash") or local_proof_sha256,
+                        details="Blockchain anchor transaction failed or reverted on chain.",
+                        actor=act,
+                    )
+
             CustodyService._persist_record(custody_rec)
 
         return notarization_dict
@@ -678,6 +1224,12 @@ class NotarizationService:
                 "created_at": rec["created_at"],
                 "created_by_actor": actor_info,
                 "verification_timestamp_utc": now_iso,
+                "chain_id": rec.get("chain_id"),
+                "transaction_hash": rec.get("transaction_hash"),
+                "block_number": rec.get("block_number"),
+                "receipt_status": rec.get("receipt_status"),
+                "anchored_value": rec.get("anchored_value"),
+                "submitted_at": rec.get("submitted_at"),
                 "details": p_res["details"],
             }
 
@@ -697,3 +1249,4 @@ class NotarizationService:
             "verification_timestamp_utc": now_iso,
             "details": "Deterministic local proof, report artifact, digital signature, and manifest chain verified cryptographically nominal.",
         }
+

@@ -702,7 +702,7 @@ class ReportSignaturesListResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# 10. Notarization Provider & Local Proof Schemas (Phase 15)
+# 10. Notarization Provider & External Blockchain Anchoring Schemas (Phase 15 & 16)
 # ---------------------------------------------------------------------------
 class NotarizationRequest(BaseModel):
     signature_id: Optional[str] = None
@@ -723,8 +723,15 @@ class NotarizationRecordDTO(BaseModel):
     provider_proof_json: Optional[str] = None
     provider_proof_sha256: Optional[str] = None
     status: str = "LOCAL_PROOF_CREATED"
-    created_at: str
+    chain_id: Optional[int] = None
+    transaction_hash: Optional[str] = None
+    block_number: Optional[int] = None
+    receipt_status: Optional[int] = None
+    anchored_value: Optional[str] = None
+    submitted_at: Optional[str] = None
     confirmed_at: Optional[str] = None
+    external_verification_timestamp: Optional[str] = None
+    created_at: str
     created_by_actor_id: str = "UNATTRIBUTED"
     created_by_actor_display_name: str = "Unattributed Analyst"
     actor_identity_source: str = "UNKNOWN"
@@ -740,8 +747,13 @@ class NotarizationVerificationResponse(BaseModel):
     manifest_version_id: str
     notarization_mode: str
     status: str
-    verification_status: str  # VERIFIED_LOCAL_PROOF | INTEGRITY_FAILED | SIGNATURE_INVALID | REPORT_INTEGRITY_FAILED | MANIFEST_INTEGRITY_FAILED | INCOMPLETE | UNSUPPORTED_PROVIDER
+    verification_status: str  # VERIFIED_LOCAL_PROOF | VERIFIED_EXTERNAL_ANCHOR | INTEGRITY_FAILED | SIGNATURE_INVALID | REPORT_INTEGRITY_FAILED | MANIFEST_INTEGRITY_FAILED | INCOMPLETE | UNSUPPORTED_PROVIDER | TRANSACTION_NOT_FOUND | RECEIPT_PENDING | TRANSACTION_REVERTED | CHAIN_ID_MISMATCH | ANCHOR_VALUE_MISMATCH
     local_proof_sha256: str
+    chain_id: Optional[int] = None
+    transaction_hash: Optional[str] = None
+    block_number: Optional[int] = None
+    receipt_status: Optional[int] = None
+    anchored_value: Optional[str] = None
     created_at: str
     created_by_actor: Dict[str, Any]
     verification_timestamp_utc: str
@@ -753,6 +765,21 @@ class AnalysisNotarizationsListResponse(BaseModel):
     report_artifact_id: Optional[str] = None
     total_notarizations: int
     notarizations: List[NotarizationRecordDTO]
+
+
+class BlockchainProviderStatusResponse(BaseModel):
+    configured: bool = False
+    provider_type: str = "LOCAL_ONLY"
+    submission_mode: str = "RPC_MANAGED_ACCOUNT"
+    chain_id: Optional[int] = None
+    connection_status: str = "NOT_CONFIGURED"
+    network_connection_status: Optional[str] = None
+    local_private_key_signing: str = "NOT_IMPLEMENTED"
+    implementation_status: str = "IMPLEMENTED_AND_MOCK_TESTED"
+    live_chain_verified: bool = False
+    from_address_configured: bool = False
+    anchor_address_configured: bool = False
+
 
 
 # ---------------------------------------------------------------------------

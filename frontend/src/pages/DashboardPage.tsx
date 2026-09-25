@@ -62,9 +62,27 @@ export const DashboardPage: React.FC = () => {
   const score = currentAnalysis?.security_score;
   const grade = score?.overall_grade || (currentAnalysis ? 'A' : '—');
   const healthScore = currentAnalysis?.capture_health ?? (currentAnalysis ? 100 : undefined);
-  const confidenceScore = currentAnalysis?.evidence_confidence ?? (currentAnalysis ? 95 : undefined);
+  const confidenceScore =
+    currentAnalysis?.streams?.[0]?.evidence_confidence?.score ??
+    currentAnalysis?.evidence_confidence_score ??
+    currentAnalysis?.evidence_confidence ??
+    undefined;
   const streamCount = currentAnalysis?.streams_count ?? (currentAnalysis ? 1 : undefined);
   const criticalCount = findings.filter(f => (f.severity || '').toUpperCase() === 'CRITICAL').length;
+
+  const getObservedTlsLabel = (analysis: any): string => {
+    const versions = Array.from(
+      new Set(
+        (analysis?.streams || [])
+          .map((s: any) => s?.tls_version || s?.tls?.version || s?.tls?.negotiated_version)
+          .filter(Boolean)
+      )
+    ) as string[];
+
+    if (versions.length === 0) return 'Analysis Complete';
+    if (versions.length === 1) return `${versions[0]} Observed`;
+    return `${versions.join(' / ')} Observed`;
+  };
 
   const getGradeColor = (g: string) => {
     switch (g) {
@@ -473,9 +491,7 @@ export const DashboardPage: React.FC = () => {
                       <span style={{ fontSize: '10px', fontFamily: 'JetBrains Mono, monospace', color: (a.critical_findings_count ?? 0) > 0 ? '#f87171' : '#34d399' }}>
                         {(a.critical_findings_count ?? 0) > 0
                           ? `${a.critical_findings_count} Critical Issues`
-                          : a.streams?.some((s: any) => s.tls_version === 'TLS 1.3')
-                          ? 'TLS 1.3 Observed'
-                          : 'Analysis Complete'}
+                          : getObservedTlsLabel(a)}
                       </span>
                       <ArrowRight size={11} color="#64748b" />
                     </div>
