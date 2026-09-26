@@ -267,7 +267,7 @@ export const ChainOfCustodyPage: React.FC = () => {
                   </span>
                 </div>
                 <span className="badge badge-gray" style={{ fontSize: '9.5px' }}>
-                  {activeDisplay?.audit_events.length || 4} Chained Events
+                  {activeDisplay?.audit_events?.length ?? 0} Chained Events
                 </span>
               </div>
 
@@ -275,44 +275,52 @@ export const ChainOfCustodyPage: React.FC = () => {
                 <table className="soc-table" style={{ width: '100%', fontSize: '10.5px' }}>
                   <thead>
                     <tr>
-                      <th style={{ width: '90px' }}>Event ID</th>
-                      <th style={{ width: '130px' }}>Timestamp (UTC)</th>
-                      <th style={{ width: '140px' }}>Event Type</th>
+                      <th style={{ width: '110px' }}>Event ID</th>
+                      <th style={{ width: '150px' }}>Timestamp (UTC)</th>
+                      <th style={{ width: '160px' }}>Event Type</th>
                       <th>Artifact Hash / Seal</th>
                       <th>Chained Event Hash</th>
                       <th>Description</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(activeDisplay?.audit_events || []).map((ev, idx) => (
-                      <tr key={ev.event_id || idx}>
-                        <td style={{ color: 'var(--text-cyan)', fontWeight: 600, fontFamily: 'JetBrains Mono, monospace' }}>{ev.event_id}</td>
-                        <td style={{ color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
-                          {ev.timestamp_utc ? ev.timestamp_utc.split('T')[1].replace('Z', '') : 'N/A'}
+                    {(!activeDisplay?.audit_events || activeDisplay.audit_events.length === 0) ? (
+                      <tr>
+                        <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                          No chained audit events recorded yet for this analysis session.
                         </td>
-                        <td>
-                          <span
-                            className={`badge ${
-                              ev.event_type.includes('VERIFIED')
-                                ? 'badge-emerald'
-                                : ev.event_type.includes('COMPLETED')
-                                ? 'badge-cyan'
-                                : 'badge-gray'
-                            }`}
-                            style={{ fontSize: '9px' }}
-                          >
-                            {ev.event_type}
-                          </span>
-                        </td>
-                        <td style={{ fontFamily: 'JetBrains Mono, monospace', color: '#f8fafc', fontSize: '9.5px' }} title={ev.artifact_hash}>
-                          {ev.artifact_hash ? `${ev.artifact_hash.slice(0, 16)}...` : 'N/A'}
-                        </td>
-                        <td style={{ fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-muted)', fontSize: '9.5px' }} title={`Prev: ${ev.previous_event_hash}\nCurr: ${ev.current_event_hash}`}>
-                          {ev.current_event_hash ? `${ev.current_event_hash.slice(0, 14)}...` : 'N/A'}
-                        </td>
-                        <td style={{ color: 'var(--text-secondary)' }}>{ev.details || '—'}</td>
                       </tr>
-                    ))}
+                    ) : (
+                      activeDisplay.audit_events.map((ev, idx) => (
+                        <tr key={ev.event_id || idx}>
+                          <td style={{ color: 'var(--text-cyan)', fontWeight: 600, fontFamily: 'JetBrains Mono, monospace' }}>{ev.event_id}</td>
+                          <td style={{ color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace', fontSize: '9.5px' }}>
+                            {ev.timestamp_utc ? ev.timestamp_utc.replace('T', ' ').replace('+00:00', 'Z') : 'N/A'}
+                          </td>
+                          <td>
+                            <span
+                              className={`badge ${
+                                ev.event_type.includes('VERIFIED')
+                                  ? 'badge-emerald'
+                                  : ev.event_type.includes('COMPLETED') || ev.event_type.includes('SEALED')
+                                  ? 'badge-cyan'
+                                  : 'badge-gray'
+                              }`}
+                              style={{ fontSize: '9px' }}
+                            >
+                              {ev.event_type}
+                            </span>
+                          </td>
+                          <td style={{ fontFamily: 'JetBrains Mono, monospace', color: '#f8fafc', fontSize: '9.5px' }} title={ev.artifact_hash}>
+                            {ev.artifact_hash ? `${ev.artifact_hash.slice(0, 16)}...` : 'N/A'}
+                          </td>
+                          <td style={{ fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-muted)', fontSize: '9.5px' }} title={`Prev: ${ev.previous_event_hash}\nCurr: ${ev.current_event_hash}`}>
+                            {ev.current_event_hash ? `${ev.current_event_hash.slice(0, 14)}...` : 'N/A'}
+                          </td>
+                          <td style={{ color: 'var(--text-secondary)' }}>{ev.details || '—'}</td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>

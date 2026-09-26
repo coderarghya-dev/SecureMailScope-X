@@ -267,10 +267,8 @@ export const FindingsPage: React.FC = () => {
                 <div style={{ fontSize: '9.5px', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
                   Frame Anchor:{' '}
                   {(() => {
-                    const totalPkts = currentAnalysis?.total_packets || 0;
-                    // Frame anchors must exist in the active capture. If frame numbers exceed the reported capture packet count (e.g. 2295 in a 27-packet capture), display 'Frame evidence unavailable'
                     const validFrames = (f.evidence_frames || []).filter(
-                      (fn: number) => typeof fn === 'number' && fn > 0 && (totalPkts === 0 || fn <= totalPkts)
+                      (fn: number) => typeof fn === 'number' && Number.isFinite(fn) && fn > 0
                     );
                     if (validFrames.length > 0) {
                       return (
@@ -279,7 +277,7 @@ export const FindingsPage: React.FC = () => {
                         </span>
                       );
                     }
-                    if (f.packet_number !== undefined && f.packet_number > 0 && (totalPkts === 0 || f.packet_number <= totalPkts)) {
+                    if (typeof f.packet_number === 'number' && Number.isFinite(f.packet_number) && f.packet_number > 0) {
                       return <span style={{ color: 'var(--text-cyan)' }}>Frame #{f.packet_number}</span>;
                     }
                     return <span style={{ color: 'var(--text-muted)' }}>Frame evidence unavailable</span>;
