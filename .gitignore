@@ -48,3 +48,5 @@ private_keys/
 # Build & Runtime Logs
 build-errors.txt
 *.log
+.agents/hooks.json
+.cursor/hooks.json

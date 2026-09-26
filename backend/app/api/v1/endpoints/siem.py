@@ -8,7 +8,7 @@
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query, Response
 
-from backend.app.schemas.siem import (
+from app.schemas.siem import (
     NormalizedSOCEvent,
     SIEMDeliveryRecord,
     SIEMDeliveryRequest,
@@ -18,7 +18,7 @@ from backend.app.schemas.siem import (
     SOCEventType,
     SOCExportFormat,
 )
-from backend.app.services.siem_service import (
+from app.services.siem_service import (
     deliver_soc_events,
     export_soc_events,
     filter_soc_events,

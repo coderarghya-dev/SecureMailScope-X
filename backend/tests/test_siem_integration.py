@@ -9,6 +9,7 @@ and REST API endpoints.
 import json
 import os
 import socket
+import sys
 import tempfile
 import unittest
 import urllib.error
@@ -16,9 +17,13 @@ from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
-from backend.app.db.database import get_db_connection, init_db, set_custom_db_path
-from backend.app.main import app
-from backend.app.schemas.siem import (
+BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
+
+from app.db.database import get_db_connection, init_db, set_custom_db_path
+from app.main import app
+from app.schemas.siem import (
     DeliveryStatus,
     NormalizedSOCEvent,
     SIEMDeliveryRecord,
@@ -30,7 +35,7 @@ from backend.app.schemas.siem import (
     SOCEventType,
     SOCExportFormat,
 )
-from backend.app.services.siem_formatters import (
+from app.services.siem_formatters import (
     _cef_escape_extension,
     _cef_escape_header,
     _rfc5424_escape_sd_param,
@@ -40,7 +45,7 @@ from backend.app.services.siem_formatters import (
     format_events_json,
     format_events_rfc5424,
 )
-from backend.app.services.siem_service import (
+from app.services.siem_service import (
     deliver_soc_events,
     export_soc_events,
     extract_soc_events_from_analysis,
@@ -52,7 +57,7 @@ from backend.app.services.siem_service import (
     get_siem_summary,
     list_siem_deliveries,
 )
-from backend.app.services.siem_transports import (
+from app.services.siem_transports import (
     JsonWebhookTransport,
     LocalFileTransport,
     TcpSyslogTransport,

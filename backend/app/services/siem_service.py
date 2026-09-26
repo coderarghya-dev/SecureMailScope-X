@@ -10,8 +10,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from backend.app.db.database import get_db_connection
-from backend.app.schemas.siem import (
+from app.db.database import get_db_connection
+from app.schemas.siem import (
     DeliveryStatus,
     NormalizedSOCEvent,
     SIEMDeliveryRecord,
@@ -23,12 +23,12 @@ from backend.app.schemas.siem import (
     SOCEventType,
     SOCExportFormat,
 )
-from backend.app.services.siem_formatters import (
+from app.services.siem_formatters import (
     format_events_cef,
     format_events_json,
     format_events_rfc5424,
 )
-from backend.app.services.siem_transports import (
+from app.services.siem_transports import (
     JsonWebhookTransport,
     LocalFileTransport,
     TcpSyslogTransport,
