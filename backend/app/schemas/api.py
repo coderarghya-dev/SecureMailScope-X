@@ -110,6 +110,9 @@ class TLSHandshakeDTO(BaseModel):
     server_hello_frame: Optional[int] = None
     certificate_visibility: str
     certificate_details: Optional[CertificateDetailsDTO] = None
+    certificate_fingerprint_sha256: Optional[str] = None
+    certificate_subject: Optional[str] = None
+    certificate_issuer: Optional[str] = None
 
 
 class CaptureHealthDTO(BaseModel):
@@ -357,6 +360,8 @@ class SessionDetailDTO(BaseModel):
     ml_triage: Optional[MLTriageDTO] = None
     certificate_details: Optional[CertificateDetailsDTO] = None
     domain_auth: Optional[DomainAuthenticationAssessmentDTO] = None
+    eml_forensics: Optional[Dict[str, Any]] = None
+    email_metadata: Optional[Dict[str, Any]] = None
 
 
 # ---------------------------------------------------------------------------
