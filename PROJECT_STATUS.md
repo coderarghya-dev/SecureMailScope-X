@@ -328,10 +328,20 @@ Status: Ran 4 tests, OK (4/4 PASS - SMTP PASS, IMAP PASS, POP3S PASS, POP3 110 S
 - Frontend Posture Monitoring Workspace: PASS (`frontend/src/pages/PostureMonitoringPage.tsx`)
 - Phase 21 Test Suite: PASS (`backend/tests/test_posture_monitoring.py`, 30/30 tests)
 
+### Phase 22 — Automated Forensic Alerting & Deterministic Rule Engine (VERIFIED / PASS)
+- Alert Rule Schemas & Templates: PASS (`backend/app/schemas/alerting.py`, 8 built-in disabled-by-default templates)
+- Safe Condition Evaluator: PASS (`ConditionEvaluator` with EQUALS, NOT_EQUALS, IN, NOT_IN, GREATER_THAN, GREATER_THAN_OR_EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL, EXISTS, CONTAINS without eval/exec)
+- Alert Instance & Lifecycle Management: PASS (`alert_instances`, `alert_activity`, OPEN -> ACKNOWLEDGED -> RESOLVED)
+- Deduplication & Cooldown Engine: PASS (Deterministic SHA-256 dedup key, cooldown storm suppression, trigger count increments)
+- Multi-Analyst RBAC Capabilities: PASS (`VIEW_ALERTS`, `MANAGE_ALERT_RULES`, `ACKNOWLEDGE_ALERT`, `RESOLVE_ALERT`, `TRIGGER_RULE_EVALUATION`)
+- Alert REST API: PASS (`backend/app/api/v1/endpoints/alerts.py`)
+- Frontend Alerting Workspace: PASS (`frontend/src/pages/AlertingPage.tsx`)
+- Phase 22 Test Suite: PASS (`backend/tests/test_alerting_engine.py`, 30/30 tests)
+
 ---
 
 ## Current Test Suite Status
-Total tests: **475 tests** across all 21 phases.
-Status: **475/475 PASS** (0 failed, 0 skipped).
+Total tests: **505 tests** across all 22 phases.
+Status: **505/505 PASS** (0 failed, 0 skipped).
 Frontend: Production build passes with 0 errors (`npm run build`).
 

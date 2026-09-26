@@ -156,4 +156,44 @@
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
+---
+
+## 22. Automated Forensic Alerting & Deterministic Rule Engine (Phase 22)
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                      Event Ingestion & Normalization                   │
+│   - POSTURE_DRIFT  |  FINDING  |  CUSTODY_VERIFICATION  |             │
+│   - SIGNATURE_VERIFICATION  |  BLOCKCHAIN_ANCHOR  |  SOC_EVENT         │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                   Deterministic Rule Condition Engine                  │
+│   - Pure evaluation: EQUALS, NOT_EQUALS, IN, NOT_IN, GREATER_THAN,     │
+│     GREATER_THAN_OR_EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL, EXISTS,      │
+│     CONTAINS (Strictly NO eval() or executable code)                   │
+│   - 8 Built-in templates (disabled by default)                         │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                   Deduplication & Cooldown Manager                     │
+│   - Canonical SHA-256 dedup key binding: rule, event_type, target,     │
+│     analysis, case, finding_code, ioc_value, drift_type                │
+│   - Alert storm suppression during cooldown_seconds window             │
+│   - Increments trigger_count and updates last_triggered_at             │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                   Alert Lifecycle & State Management                   │
+│   - States: OPEN ──► ACKNOWLEDGED ──► RESOLVED                         │
+│   - Attribution & Audit Trail logged in alert_activity & audit_events  │
+│   - RBAC Capabilities: VIEW_ALERTS, MANAGE_ALERT_RULES,                │
+│     ACKNOWLEDGE_ALERT, RESOLVE_ALERT, TRIGGER_RULE_EVALUATION          │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+
 
