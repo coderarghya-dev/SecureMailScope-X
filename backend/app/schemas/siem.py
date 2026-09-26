@@ -23,6 +23,7 @@ class SOCEventType(str, Enum):
     CASE_CREATED = "CASE_CREATED"
     CASE_SEALED = "CASE_SEALED"
     CASE_ARCHIVED = "CASE_ARCHIVED"
+    POSTURE_DRIFT_OBSERVED = "POSTURE_DRIFT_OBSERVED"
 
 
 class SOCEventSeverity(str, Enum):

@@ -12,6 +12,7 @@ import PacketExplorerPage from './pages/PacketExplorerPage';
 import ChainOfCustodyPage from './pages/ChainOfCustodyPage';
 import ReportsPage from './pages/ReportsPage';
 import SettingsPage from './pages/SettingsPage';
+import PostureMonitoringPage from './pages/PostureMonitoringPage';
 
 export const App: React.FC = () => {
   return (
@@ -28,6 +29,7 @@ export const App: React.FC = () => {
           <Route path="pqc" element={<PQCReadinessPage />} />
           <Route path="packets" element={<PacketExplorerPage />} />
           <Route path="custody" element={<ChainOfCustodyPage />} />
+          <Route path="monitoring" element={<PostureMonitoringPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

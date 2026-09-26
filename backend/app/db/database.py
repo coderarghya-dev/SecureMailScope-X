@@ -191,7 +191,7 @@ def init_db(db_path: Optional[str] = None):
         if "role" not in existing_cols:
             cursor.execute("ALTER TABLE analysts ADD COLUMN role TEXT NOT NULL DEFAULT 'FORENSIC_ANALYST';")
 
-    # 0. Analysts table (Attribution & RBAC Registry - No credentials or secrets)
+    # 0. Analysts table (Attribution Registry - No credentials or secrets)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS analysts (
             analyst_id TEXT PRIMARY KEY,
@@ -657,6 +657,77 @@ def init_db(db_path: Optional[str] = None):
         )
     """)
 
+    # 23. Monitored Targets table (Phase 21 Continuous Mail Security Posture Monitoring)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS monitored_targets (
+            target_id TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL,
+            hostname TEXT NOT NULL,
+            port INTEGER NOT NULL,
+            protocol TEXT NOT NULL,
+            security_mode TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            schedule_type TEXT NOT NULL DEFAULT 'MANUAL',
+            schedule_value TEXT,
+            baseline_snapshot_id TEXT,
+            baseline_pinned_by TEXT,
+            baseline_pinned_at TEXT,
+            last_scanned_at TEXT,
+            next_scan_due_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            created_by TEXT NOT NULL DEFAULT 'analyst-01'
+        )
+    """)
+
+    # 24. Posture Snapshots table (Phase 21 Deterministic Snapshots & Hash Binding)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS posture_snapshots (
+            snapshot_id TEXT PRIMARY KEY,
+            target_id TEXT NOT NULL,
+            scanned_at TEXT NOT NULL,
+            reachable INTEGER NOT NULL,
+            protocol TEXT NOT NULL,
+            security_mode TEXT NOT NULL,
+            starttls_supported INTEGER,
+            starttls_accepted INTEGER,
+            tls_version TEXT,
+            cipher_suite TEXT,
+            certificate_fingerprint TEXT,
+            certificate_subject TEXT,
+            certificate_issuer TEXT,
+            certificate_not_before TEXT,
+            certificate_not_after TEXT,
+            certificate_valid INTEGER,
+            pfs_status TEXT,
+            pqc_status TEXT,
+            auth_posture TEXT,
+            raw_evidence_reference TEXT,
+            scan_result_sha256 TEXT NOT NULL,
+            canonical_snapshot_sha256 TEXT NOT NULL,
+            FOREIGN KEY (target_id) REFERENCES monitored_targets (target_id) ON DELETE CASCADE
+        )
+    """)
+
+    # 25. Posture Drift Events table (Phase 21 Drift Ledger)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS posture_drift_events (
+            event_id TEXT PRIMARY KEY,
+            target_id TEXT NOT NULL,
+            prior_snapshot_id TEXT,
+            current_snapshot_id TEXT NOT NULL,
+            drift_type TEXT NOT NULL,
+            classification TEXT NOT NULL,
+            old_value TEXT,
+            new_value TEXT,
+            details TEXT NOT NULL,
+            detected_at TEXT NOT NULL,
+            compared_against_baseline INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (target_id) REFERENCES monitored_targets (target_id) ON DELETE CASCADE,
+            FOREIGN KEY (current_snapshot_id) REFERENCES posture_snapshots (snapshot_id) ON DELETE CASCADE
+        )
+    """)
+
     # Create Performance Indexes
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_analysis_id ON sessions(analysis_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_findings_analysis_id ON findings(analysis_id);")
@@ -683,6 +754,14 @@ def init_db(db_path: Optional[str] = None):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_case_assignments_analyst ON case_assignments(analyst_id, is_active);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_case_reviews_case ON case_reviews(case_id, is_active);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_case_reviews_manifest ON case_reviews(case_id, manifest_sha256_at_review);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_monitored_targets_enabled ON monitored_targets(enabled);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_monitored_targets_hostname ON monitored_targets(hostname);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_posture_snapshots_target ON posture_snapshots(target_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_posture_snapshots_scanned_at ON posture_snapshots(scanned_at);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_posture_snapshots_canonical_sha ON posture_snapshots(canonical_snapshot_sha256);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_posture_drift_events_target ON posture_drift_events(target_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_posture_drift_events_detected_at ON posture_drift_events(detected_at);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_posture_drift_events_classification ON posture_drift_events(classification);")
 
     conn.commit()
     conn.close()

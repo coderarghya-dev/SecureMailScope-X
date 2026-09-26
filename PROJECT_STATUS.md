@@ -315,9 +315,23 @@ Status: Ran 4 tests, OK (4/4 PASS - SMTP PASS, IMAP PASS, POP3S PASS, POP3 110 S
 - RBAC & Peer Review REST API: PASS (`backend/app/api/v1/endpoints/rbac.py`)
 - Phase 20 Test Suite: PASS (`backend/tests/test_rbac_peer_review.py`, 30/30 tests)
 
+### Phase 21 — Continuous Mail Security Posture Monitoring & Drift Engine (VERIFIED / PASS)
+- Monitored Target Model (`monitored_targets`): PASS (Hostname, port, protocol, security_mode, schedule, baseline reference)
+- Deterministic Posture Snapshots (`posture_snapshots`): PASS (Active probes, raw evidence binding, canonical SHA-256 hash)
+- Canonical Snapshot Hashing: PASS (`PostureMonitoringService.compute_canonical_snapshot_sha256`)
+- Configuration Drift Detection Engine (`posture_drift_events`): PASS (Reachability, TLS version downgrades/upgrades, STARTTLS toggle, cipher changes, cert expiry/renewal, PFS/PQC state changes)
+- Baseline Pinning Workflow: PASS (`PostureMonitoringService.pin_baseline`)
+- Pure Local Scheduler Evaluation: PASS (MANUAL, HOURLY, DAILY, WEEKLY local due evaluations without cloud dependencies)
+- SIEM / SOC Drift Event Derivation: PASS (`PostureMonitoringService.derive_siem_events_from_drift` -> NormalizedSOCEvent)
+- RBAC Capability Enforcement: PASS (Enforces VIEW_MONITORING, MANAGE_MONITORED_TARGETS, RUN_MONITOR_SCAN, PIN_POSTURE_BASELINE, VIEW_DRIFT_HISTORY)
+- Monitoring REST API: PASS (`backend/app/api/v1/endpoints/monitoring.py`)
+- Frontend Posture Monitoring Workspace: PASS (`frontend/src/pages/PostureMonitoringPage.tsx`)
+- Phase 21 Test Suite: PASS (`backend/tests/test_posture_monitoring.py`, 30/30 tests)
+
 ---
 
 ## Current Test Suite Status
-Total tests: **445 tests** across all 20 phases.
-Status: **445/445 PASS** (0 failed, 0 skipped).
-Frontend: Production build passes with 0 errors (`npm run build`).
+Total tests: **475 tests** across all 21 phases.
+Status: **475/475 PASS** (0 failed, 0 skipped).
+Frontend: Production build passes with 0 errors (`npm run build`).
+

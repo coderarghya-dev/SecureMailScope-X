@@ -1,8 +1,8 @@
 # ==============================================================================
-# SecureMailScope X — Phase 20: Multi-Analyst RBAC & Cryptographic Peer Review Schemas
+# SecureMailScope X — Phase 20/21: Multi-Analyst RBAC & Peer Review Schemas
 # ==============================================================================
 """Data models and schemas for role-based access control (RBAC), multi-analyst
-case assignments, review workflows, cryptographic peer sign-offs, and sealing policies.
+case assignments, review workflows, cryptographic peer sign-offs, and monitoring capabilities.
 """
 
 from enum import Enum
@@ -28,6 +28,11 @@ class Capability(str, Enum):
     SEAL_CASE = "SEAL_CASE"
     OVERRIDE_POLICY = "OVERRIDE_POLICY"
     MANAGE_ROLES = "MANAGE_ROLES"
+    VIEW_MONITORING = "VIEW_MONITORING"
+    MANAGE_MONITORED_TARGETS = "MANAGE_MONITORED_TARGETS"
+    RUN_MONITOR_SCAN = "RUN_MONITOR_SCAN"
+    PIN_POSTURE_BASELINE = "PIN_POSTURE_BASELINE"
+    VIEW_DRIFT_HISTORY = "VIEW_DRIFT_HISTORY"
 
 
 class AssignmentRole(str, Enum):

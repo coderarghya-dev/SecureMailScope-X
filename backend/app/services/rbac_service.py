@@ -1,9 +1,9 @@
 # ==============================================================================
-# SecureMailScope X — Phase 20: Multi-Analyst RBAC & Peer Sign-Off Service
+# SecureMailScope X — Phase 20/21: Multi-Analyst RBAC & Peer Sign-Off Service
 # ==============================================================================
 """Core service implementing role-based access control (RBAC), capability checks,
 multi-analyst case assignments, manifest-bound review lifecycles, cryptographic
-peer sign-offs (Ed25519/RSA), and M-of-N case sealing policies.
+peer sign-offs (Ed25519/RSA), M-of-N case sealing policies, and posture monitoring capabilities.
 """
 
 import base64
@@ -47,6 +47,9 @@ ROLE_CAPABILITIES: Dict[AnalystRole, Set[Capability]] = {
         Capability.VIEW_CASE,
         Capability.EDIT_CASE,
         Capability.REQUEST_REVIEW,
+        Capability.VIEW_MONITORING,
+        Capability.RUN_MONITOR_SCAN,
+        Capability.VIEW_DRIFT_HISTORY,
     },
     AnalystRole.LEAD_INVESTIGATOR: {
         Capability.VIEW_CASE,
@@ -56,14 +59,23 @@ ROLE_CAPABILITIES: Dict[AnalystRole, Set[Capability]] = {
         Capability.SUBMIT_REVIEW,
         Capability.SIGN_OFF,
         Capability.SEAL_CASE,
+        Capability.VIEW_MONITORING,
+        Capability.MANAGE_MONITORED_TARGETS,
+        Capability.RUN_MONITOR_SCAN,
+        Capability.PIN_POSTURE_BASELINE,
+        Capability.VIEW_DRIFT_HISTORY,
     },
     AnalystRole.REVIEWER: {
         Capability.VIEW_CASE,
         Capability.SUBMIT_REVIEW,
         Capability.SIGN_OFF,
+        Capability.VIEW_MONITORING,
+        Capability.VIEW_DRIFT_HISTORY,
     },
     AnalystRole.AUDITOR: {
         Capability.VIEW_CASE,
+        Capability.VIEW_MONITORING,
+        Capability.VIEW_DRIFT_HISTORY,
     },
     AnalystRole.ADMIN: {
         Capability.VIEW_CASE,
@@ -75,6 +87,11 @@ ROLE_CAPABILITIES: Dict[AnalystRole, Set[Capability]] = {
         Capability.SEAL_CASE,
         Capability.OVERRIDE_POLICY,
         Capability.MANAGE_ROLES,
+        Capability.VIEW_MONITORING,
+        Capability.MANAGE_MONITORED_TARGETS,
+        Capability.RUN_MONITOR_SCAN,
+        Capability.PIN_POSTURE_BASELINE,
+        Capability.VIEW_DRIFT_HISTORY,
     },
 }
 

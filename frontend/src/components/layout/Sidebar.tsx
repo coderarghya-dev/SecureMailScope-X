@@ -13,7 +13,8 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  Terminal
+  Terminal,
+  Activity
 } from 'lucide-react';
 import { useHealthStore } from '../../store/useHealthStore';
 import { StatusIndicator } from '../common/StatusIndicator';
@@ -38,6 +39,7 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Ingestion Station', path: '/analyze', icon: <UploadCloud size={14} /> },
       { name: 'Session Matrix', path: '/sessions', icon: <Layers size={14} /> },
       { name: 'Security Findings', path: '/findings', icon: <AlertTriangle size={14} /> },
+      { name: 'Posture Monitoring', path: '/monitoring', icon: <Activity size={14} /> },
     ]
   },
   {
