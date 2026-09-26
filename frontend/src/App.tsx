@@ -14,7 +14,6 @@ import ReportsPage from './pages/ReportsPage';
 import SettingsPage from './pages/SettingsPage';
 import PostureMonitoringPage from './pages/PostureMonitoringPage';
 import RemediationPage from './pages/RemediationPage';
-import PQCMigrationPage from './pages/PQCMigrationPage';
 
 export const App: React.FC = () => {
   return (
@@ -29,7 +28,6 @@ export const App: React.FC = () => {
           <Route path="findings" element={<FindingsPage />} />
           <Route path="crypto" element={<CryptoPosturePage />} />
           <Route path="pqc" element={<PQCReadinessPage />} />
-          <Route path="pqc-migration" element={<PQCMigrationPage />} />
           <Route path="packets" element={<PacketExplorerPage />} />
           <Route path="custody" element={<ChainOfCustodyPage />} />
           <Route path="monitoring" element={<PostureMonitoringPage />} />

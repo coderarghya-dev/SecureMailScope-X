@@ -49,7 +49,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { name: 'Crypto Posture', path: '/crypto', icon: <Lock size={14} /> },
       { name: 'PQC Readiness', path: '/pqc', icon: <Cpu size={14} /> },
-      { name: 'PQC Migration', path: '/pqc-migration', icon: <Cpu size={14} /> },
     ]
   },
   {

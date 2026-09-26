@@ -1,21 +1,20 @@
-"""
-SecureMailScope X - Post-Quantum Cryptography Migration Planner Schemas (Phase 24)
-
-Deterministic, evidence-backed PQC readiness assessment, quantum exposure modeling,
-and 7-phase hybrid transition roadmap data transfer objects.
+# ==============================================================================
+# SecureMailScope X — Phase 24 / 25: Post-Quantum Cryptography Migration Schemas
+# ==============================================================================
+"""Data models and schemas for post-quantum cryptographic asset discovery,
+categorical HNDL quantum exposure assessments, 7-phase transition roadmaps,
+and cryptographic peer sign-offs.
 """
 
 from enum import Enum
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
 class PQCReadinessClassification(str, Enum):
-    NOT_ASSESSED = "NOT_ASSESSED"
     CLASSICAL_ONLY = "CLASSICAL_ONLY"
-    PQC_AWARE = "PQC_AWARE"
-    HYBRID_READY = "HYBRID_READY"
     PQC_READY = "PQC_READY"
+    HYBRID_READY = "HYBRID_READY"
     UNKNOWN = "UNKNOWN"
 
 
@@ -28,40 +27,38 @@ class QuantumExposureLevel(str, Enum):
 
 
 class DataSensitivityLifetime(str, Enum):
+    UNDER_5_YEARS = "UNDER_5_YEARS"
+    BETWEEN_5_AND_10_YEARS = "BETWEEN_5_AND_10_YEARS"
+    OVER_10_YEARS = "OVER_10_YEARS"
     UNKNOWN = "UNKNOWN"
-    SHORT_TERM = "SHORT_TERM"       # < 1 year
-    MEDIUM_TERM = "MEDIUM_TERM"     # 1-5 years
-    LONG_TERM = "LONG_TERM"         # > 5 years (high HNDL impact)
 
 
 class PQCTransitionTargetArchitecture(str, Enum):
-    HYBRID_KEM_TARGET = "HYBRID_KEM_TARGET"                         # Dual classical + ML-KEM KEX
-    HYBRID_SIGNATURE_TARGET = "HYBRID_SIGNATURE_TARGET"             # Dual classical + ML-DSA / Falcon
-    PQC_CERTIFICATE_TARGET = "PQC_CERTIFICATE_TARGET"               # Composite / PQC X.509 certificates
-    PQC_CAPABLE_MAIL_GATEWAY = "PQC_CAPABLE_MAIL_GATEWAY"           # Mail gateway supporting hybrid TLS & S/MIME
-    PQC_AWARE_TLS_TERMINATOR = "PQC_AWARE_TLS_TERMINATOR"           # Edge reverse proxy / TLS terminator
+    NIST_FIPS_203_ML_KEM = "NIST_FIPS_203_ML_KEM"
+    NIST_FIPS_204_ML_DSA = "NIST_FIPS_204_ML_DSA"
+    NIST_FIPS_205_SLH_DSA = "NIST_FIPS_205_SLH_DSA"
+    HYBRID_CLASSICAL_PQC = "HYBRID_CLASSICAL_PQC"
 
 
 class MigrationPhaseName(str, Enum):
-    PHASE_A_INVENTORY = "PHASE_A_INVENTORY"
-    PHASE_B_RISK_ASSESSMENT = "PHASE_B_RISK_ASSESSMENT"
-    PHASE_C_TARGET_ARCHITECTURE_SELECTION = "PHASE_C_TARGET_ARCHITECTURE_SELECTION"
-    PHASE_D_PILOT_HYBRID_KEM = "PHASE_D_PILOT_HYBRID_KEM"
-    PHASE_E_HYBRID_SIGNATURES = "PHASE_E_HYBRID_SIGNATURES"
+    PHASE_A_DISCOVERY = "PHASE_A_DISCOVERY"
+    PHASE_B_POLICY_GOVERNANCE = "PHASE_B_POLICY_GOVERNANCE"
+    PHASE_C_HYBRID_KEM = "PHASE_C_HYBRID_KEM"
+    PHASE_D_PQC_AUTH = "PHASE_D_PQC_AUTH"
+    PHASE_E_QUANTUM_RESISTANT_TRANSPORT = "PHASE_E_QUANTUM_RESISTANT_TRANSPORT"
     PHASE_F_PQC_PRIMARY_TRANSITION = "PHASE_F_PQC_PRIMARY_TRANSITION"
-    PHASE_G_VERIFICATION = "PHASE_G_VERIFICATION"
+    PHASE_G_COMPLIANCE_AUDIT = "PHASE_G_COMPLIANCE_AUDIT"
 
 
 class MigrationStepStatus(str, Enum):
-    PENDING = "PENDING"
+    NOT_STARTED = "NOT_STARTED"
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"
     BLOCKED = "BLOCKED"
-    SKIPPED = "SKIPPED"
+    DEFERRED = "DEFERRED"
 
 
 class GapSeverity(str, Enum):
-    INFO = "INFO"
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
@@ -70,157 +67,103 @@ class GapSeverity(str, Enum):
 
 class PQCRoadmapStatus(str, Enum):
     DRAFT = "DRAFT"
-    IN_REVIEW = "IN_REVIEW"
-    APPROVED = "APPROVED"
-    REJECTED = "REJECTED"
-    ARCHIVED = "ARCHIVED"
+    PROPOSED = "PROPOSED"
+    REVIEWED = "REVIEWED"
+    SIGNED = "SIGNED"
+    DEPRECATED = "DEPRECATED"
 
 
-# ---------------------------------------------------------------------------
-# Cryptographic Asset DTOs
-# ---------------------------------------------------------------------------
-
-class CryptoAssetItem(BaseModel):
+class PQCCryptoAssetDTO(BaseModel):
     asset_id: str
     analysis_id: Optional[str] = None
-    case_id: Optional[str] = None
     target_id: Optional[str] = None
-    protocol: str = "TLS"
-    endpoint: str
-    crypto_layer: str  # e.g., "KEY_EXCHANGE", "CIPHER", "SIGNATURE", "CERTIFICATE"
-    algorithm_family: str  # e.g., "RSA", "ECDHE", "ML-KEM", "HYBRID"
-    algorithm_name: str
-    key_size: Optional[int] = None
-    certificate_fingerprint: Optional[str] = None
-    certificate_key_algorithm: Optional[str] = None
-    kex_type: Optional[str] = None
+    asset_type: str
+    identifier: str
+    key_exchange_algorithm: Optional[str] = None
+    cipher_algorithm: Optional[str] = None
     signature_algorithm: Optional[str] = None
-    pqc_status: PQCReadinessClassification = PQCReadinessClassification.UNKNOWN
-    hybrid_status: bool = False
-    evidence_reference: str
-    observed_at: str
+    key_length_bits: Optional[int] = None
+    has_forward_secrecy: bool
+    pqc_readiness: PQCReadinessClassification
+    hndl_exposure: QuantumExposureLevel
+    data_sensitivity_lifetime: DataSensitivityLifetime
+    first_observed_at: str
+    last_observed_at: str
+    evidence_reference: Optional[str] = None
 
 
-class CryptoAssetInventoryResponse(BaseModel):
-    total_assets: int
-    classical_count: int
-    hybrid_count: int
-    pqc_ready_count: int
-    unknown_count: int
-    assets: List[CryptoAssetItem]
-
-
-# ---------------------------------------------------------------------------
-# Quantum Exposure & HNDL Risk DTOs
-# ---------------------------------------------------------------------------
-
-class PQCExposureAssessmentResponse(BaseModel):
-    overall_exposure: QuantumExposureLevel
-    hndl_vulnerability_level: QuantumExposureLevel
-    data_sensitivity: DataSensitivityLifetime = DataSensitivityLifetime.UNKNOWN
-    forward_secrecy_present: bool
-    vulnerable_kex_algorithms: List[str] = Field(default_factory=list)
-    vulnerable_signature_algorithms: List[str] = Field(default_factory=list)
-    risk_summary: str
-    evidence_references: List[str] = Field(default_factory=list)
-
-
-# ---------------------------------------------------------------------------
-# Gap Finding DTOs
-# ---------------------------------------------------------------------------
-
-class PQCGapFindingItem(BaseModel):
+class PQCGapFindingDTO(BaseModel):
     gap_id: str
-    roadmap_id: Optional[str] = None
+    roadmap_id: str
     asset_id: Optional[str] = None
-    gap_type: str  # e.g., "NO_HYBRID_KEM", "CLASSICAL_RSA_KEY", "DEPRECATED_SIGNATURE"
     severity: GapSeverity
+    title: str
     description: str
-    evidence_reference: str
-    remediation_action: str
-    created_at: str
+    affected_component: str
+    recommended_pqc_replacement: str
+    nist_standard_ref: str
 
 
-class PQCGapAnalysisRequest(BaseModel):
-    analysis_id: Optional[str] = None
-    target_id: Optional[str] = None
-    target_architecture: PQCTransitionTargetArchitecture = PQCTransitionTargetArchitecture.HYBRID_KEM_TARGET
-
-
-class PQCGapAnalysisResponse(BaseModel):
-    target_architecture: PQCTransitionTargetArchitecture
-    current_readiness: PQCReadinessClassification
-    total_gaps: int
-    gaps: List[PQCGapFindingItem]
-    readiness_summary: str
-
-
-# ---------------------------------------------------------------------------
-# Roadmap Step & Roadmap DTOs
-# ---------------------------------------------------------------------------
-
-class PQCMigrationStepItem(BaseModel):
+class PQCMigrationStepDTO(BaseModel):
     step_id: str
     roadmap_id: str
+    phase_number: int
     phase_name: MigrationPhaseName
-    sequence_order: int
-    objective: str
-    recommended_actions: List[str]
-    validation_criteria: List[str]
-    rollback_considerations: List[str]
-    blocking_issues: List[str] = Field(default_factory=list)
-    status: MigrationStepStatus = MigrationStepStatus.PENDING
-    created_at: str
-
-
-class PQCRoadmapCreateRequest(BaseModel):
-    title: str
-    description: str = ""
-    case_id: Optional[str] = None
-    target_id: Optional[str] = None
-    analysis_id: Optional[str] = None
-    target_architecture: PQCTransitionTargetArchitecture = PQCTransitionTargetArchitecture.HYBRID_KEM_TARGET
-    data_sensitivity: DataSensitivityLifetime = DataSensitivityLifetime.UNKNOWN
-
-
-class PQCRoadmapUpdateRequest(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    status: Optional[PQCRoadmapStatus] = None
-    step_updates: Optional[Dict[str, MigrationStepStatus]] = None
-
-
-class PQCRoadmapApprovalRequest(BaseModel):
-    roadmap_id: str
-    reviewer_analyst_id: str
-    signature_algorithm: str = "Ed25519"
-    signature_hex: str
-    public_key_hex: str
-    comments: Optional[str] = None
-
-
-class PQCRoadmapResponse(BaseModel):
-    roadmap_id: str
-    case_id: Optional[str] = None
-    target_id: Optional[str] = None
-    analysis_id: Optional[str] = None
     title: str
     description: str
+    target_standards: List[str]
+    deliverables: List[str]
+    status: MigrationStepStatus
+    order_index: int
+    notes: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
+class PQCMigrationStepUpdate(BaseModel):
+    status: Optional[MigrationStepStatus] = None
+    notes: Optional[str] = None
+
+
+class PQCMigrationRoadmapDTO(BaseModel):
+    roadmap_id: str
+    title: str
+    target_architecture: PQCTransitionTargetArchitecture
     current_readiness: PQCReadinessClassification
-    target_profile: PQCTransitionTargetArchitecture
-    exposure_level: QuantumExposureLevel
+    highest_exposure: QuantumExposureLevel
     status: PQCRoadmapStatus
-    version: int = 1
-    steps: List[PQCMigrationStepItem] = Field(default_factory=list)
-    gaps: List[PQCGapFindingItem] = Field(default_factory=list)
-    approved_by: Optional[str] = None
-    approved_at: Optional[str] = None
-    approval_signature: Optional[str] = None
+    total_steps: int
+    completed_steps: int
+    canonical_roadmap_sha256: str
+    signed_by_analyst_id: Optional[str] = None
+    signed_by_analyst_name: Optional[str] = None
+    signature_algorithm: Optional[str] = None
+    signature_value: Optional[str] = None
     created_by: str
     created_at: str
     updated_at: str
+    steps: List[PQCMigrationStepDTO] = Field(default_factory=list)
+    gaps: List[PQCGapFindingDTO] = Field(default_factory=list)
 
 
-class PQCRoadmapListResponse(BaseModel):
-    total: int
-    roadmaps: List[PQCRoadmapResponse]
+class PQCRoadmapCreateRequest(BaseModel):
+    title: str = Field(..., min_length=3, max_length=150)
+    target_architecture: PQCTransitionTargetArchitecture = PQCTransitionTargetArchitecture.HYBRID_CLASSICAL_PQC
+    analysis_ids: Optional[List[str]] = None
+    target_ids: Optional[List[str]] = None
+
+
+class PQCRoadmapSignRequest(BaseModel):
+    private_key_pem: Optional[str] = None
+    key_id: Optional[str] = None
+
+
+class PQCDiscoveryRequest(BaseModel):
+    analysis_id: Optional[str] = None
+    target_id: Optional[str] = None
+    data_sensitivity_lifetime: DataSensitivityLifetime = DataSensitivityLifetime.UNKNOWN
+
+
+class PQCDiscoveryResult(BaseModel):
+    discovered_assets: List[PQCCryptoAssetDTO]
+    overall_pqc_readiness: PQCReadinessClassification
+    highest_exposure: QuantumExposureLevel

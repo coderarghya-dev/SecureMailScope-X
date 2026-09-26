@@ -15,6 +15,7 @@ from app.api.v1.endpoints import (
     rbac,
     monitoring,
     remediation,
+    alerts,
     pqc_migration,
 )
 
@@ -32,5 +33,5 @@ api_v1_router.include_router(siem.router, tags=["SIEM / SOC Integration & Event 
 api_v1_router.include_router(rbac.router, tags=["Multi-Analyst RBAC & Peer Sign-Off"])
 api_v1_router.include_router(monitoring.router, tags=["Continuous Posture Monitoring & Drift Engine"])
 api_v1_router.include_router(remediation.router, tags=["Remediation Playbooks & Verify-After-Fix Engine"])
-api_v1_router.include_router(pqc_migration.router, tags=["Post-Quantum Cryptography Migration Planner"])
-
+api_v1_router.include_router(alerts.router, tags=["Automated Forensic Alerting"])
+api_v1_router.include_router(pqc_migration.router, tags=["Post-Quantum Cryptography Migration"])
