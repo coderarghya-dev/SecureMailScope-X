@@ -728,6 +728,76 @@ def init_db(db_path: Optional[str] = None):
         )
     """)
 
+    # 26. Remediation Plans table (Phase 23 Evidence-Based Remediation Plans)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS remediation_plans (
+            plan_id TEXT PRIMARY KEY,
+            case_id TEXT,
+            analysis_id TEXT,
+            target_id TEXT,
+            title TEXT NOT NULL,
+            description TEXT,
+            platform TEXT NOT NULL DEFAULT 'GENERIC',
+            status TEXT NOT NULL DEFAULT 'PROPOSED',
+            version INTEGER NOT NULL DEFAULT 1,
+            supersedes_plan_id TEXT,
+            assumptions_json TEXT,
+            limitations_json TEXT,
+            created_by TEXT NOT NULL DEFAULT 'analyst-01',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            applied_by TEXT,
+            applied_at TEXT,
+            verified_by TEXT,
+            verified_at TEXT,
+            FOREIGN KEY (case_id) REFERENCES cases (id) ON DELETE SET NULL,
+            FOREIGN KEY (analysis_id) REFERENCES analyses (analysis_id) ON DELETE SET NULL,
+            FOREIGN KEY (target_id) REFERENCES monitored_targets (target_id) ON DELETE SET NULL
+        )
+    """)
+
+    # 27. Remediation Plan Items table (Phase 23 Plan Steps)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS remediation_plan_items (
+            item_id TEXT PRIMARY KEY,
+            plan_id TEXT NOT NULL,
+            finding_id TEXT,
+            finding_code TEXT NOT NULL,
+            remediation_id TEXT NOT NULL,
+            action_title TEXT NOT NULL,
+            category TEXT NOT NULL,
+            priority TEXT NOT NULL,
+            guidance_text TEXT NOT NULL,
+            config_snippet TEXT,
+            expected_security_effect TEXT,
+            validation_steps_json TEXT,
+            rollback_guidance TEXT,
+            status TEXT NOT NULL DEFAULT 'PROPOSED',
+            evidence_reference TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (plan_id) REFERENCES remediation_plans (plan_id) ON DELETE CASCADE
+        )
+    """)
+
+    # 28. Remediation Verifications table (Phase 23 Verify-After-Fix Audit Log)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS remediation_verifications (
+            verification_id TEXT PRIMARY KEY,
+            plan_id TEXT NOT NULL,
+            verified_by TEXT NOT NULL,
+            verified_at TEXT NOT NULL,
+            verification_status TEXT NOT NULL,
+            verification_method TEXT NOT NULL,
+            verification_evidence_reference TEXT,
+            prior_finding_count INTEGER NOT NULL DEFAULT 0,
+            resolved_finding_count INTEGER NOT NULL DEFAULT 0,
+            remaining_finding_count INTEGER NOT NULL DEFAULT 0,
+            notes TEXT,
+            details_json TEXT,
+            FOREIGN KEY (plan_id) REFERENCES remediation_plans (plan_id) ON DELETE CASCADE
+        )
+    """)
+
     # Create Performance Indexes
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_analysis_id ON sessions(analysis_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_findings_analysis_id ON findings(analysis_id);")
@@ -762,6 +832,13 @@ def init_db(db_path: Optional[str] = None):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_posture_drift_events_target ON posture_drift_events(target_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_posture_drift_events_detected_at ON posture_drift_events(detected_at);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_posture_drift_events_classification ON posture_drift_events(classification);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_remediation_plans_case ON remediation_plans(case_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_remediation_plans_target ON remediation_plans(target_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_remediation_plans_status ON remediation_plans(status);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_remediation_plan_items_plan ON remediation_plan_items(plan_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_remediation_plan_items_code ON remediation_plan_items(finding_code);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_remediation_verifications_plan ON remediation_verifications(plan_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_remediation_verifications_status ON remediation_verifications(verification_status);")
 
     conn.commit()
     conn.close()

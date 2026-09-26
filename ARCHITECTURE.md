@@ -153,45 +153,56 @@
 │   - Local-only evaluation; zero unsolicited network deliveries         │
 │   - RBAC Capabilities: VIEW_MONITORING, MANAGE_MONITORED_TARGETS,      │
 │     RUN_MONITOR_SCAN, PIN_POSTURE_BASELINE, VIEW_DRIFT_HISTORY         │
-└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 22. Automated Forensic Alerting & Deterministic Rule Engine (Phase 22)
+## 23. Evidence-Based Remediation Playbooks & Deterministic Simulate-Fix Engine (Phase 23)
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                      Event Ingestion & Normalization                   │
-│   - POSTURE_DRIFT  |  FINDING  |  CUSTODY_VERIFICATION  |             │
-│   - SIGNATURE_VERIFICATION  |  BLOCKCHAIN_ANCHOR  |  SOC_EVENT         │
+│                   Verified Forensic Findings & Posture Drift           │
+│   - Cleartext auth, obsolete TLS 1.0/1.1, weak ciphers, expired certs, │
+│     missing STARTTLS, weak DH parameters, unauthenticated domains       │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│                   Deterministic Rule Condition Engine                  │
-│   - Pure evaluation: EQUALS, NOT_EQUALS, IN, NOT_IN, GREATER_THAN,     │
-│     GREATER_THAN_OR_EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL, EXISTS,      │
-│     CONTAINS (Strictly NO eval() or executable code)                   │
-│   - 8 Built-in templates (disabled by default)                         │
+│              Platform-Specific Advisory Playbook Catalogs              │
+│   - POSTFIX   |   EXIM   |   DOVECOT   |   SENDMAIL   |   GENERIC      │
+│   - Exact configuration directives, hardening snippets, validation    │
+│     steps, rollback guidance, explicit assumptions, and limitations    │
+│   - Strictly advisory: ZERO live commands, scripts, or SSH writes      │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│                   Deduplication & Cooldown Manager                     │
-│   - Canonical SHA-256 dedup key binding: rule, event_type, target,     │
-│     analysis, case, finding_code, ioc_value, drift_type                │
-│   - Alert storm suppression during cooldown_seconds window             │
-│   - Increments trigger_count and updates last_triggered_at             │
+│                Deterministic Simulate-Fix & Projection Engine          │
+│   - In-memory what-if risk modeling without mutating PCAP/DB evidence  │
+│   - Explicit PostureLabel tracking:                                    │
+│       * OBSERVED (immutable historical fact)                           │
+│       * ASSUMED_AFTER_FIX (projected outcome upon policy fix)          │
+│       * UNCHANGED (remaining unaffected findings)                      │
+│   - Side-by-side before/after risk scores and grade calculations       │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│                   Alert Lifecycle & State Management                   │
-│   - States: OPEN ──► ACKNOWLEDGED ──► RESOLVED                         │
-│   - Attribution & Audit Trail logged in alert_activity & audit_events  │
-│   - RBAC Capabilities: VIEW_ALERTS, MANAGE_ALERT_RULES,                │
-│     ACKNOWLEDGE_ALERT, RESOLVE_ALERT, TRIGGER_RULE_EVALUATION          │
+│               Case Remediation Plan Lifecycle & Audit Trail            │
+│   - States: PROPOSED -> USER_REPORTED_APPLIED -> AWAITING_VERIFICATION │
+│             -> VERIFIED / FAILED_VERIFICATION                          │
+│   - Multi-Analyst RBAC capabilities:                                   │
+│       * VIEW_REMEDIATION, CREATE_REMEDIATION_PLAN                      │
+│       * EDIT_REMEDIATION_PLAN, RUN_SIMULATION                          │
+│       * MARK_APPLIED, VERIFY_REMEDIATION                               │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│               Forensic Verify-After-Fix Evidence Engine                │
+│   - Compares prior finding codes against fresh scan or PCAP evidence   │
+│   - Non-repudiable audit logs in remediation_verifications table       │
+│   - Guarantees zero fake or synthetic evidence in verification         │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 

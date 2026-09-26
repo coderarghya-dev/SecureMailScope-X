@@ -13,6 +13,7 @@ import ChainOfCustodyPage from './pages/ChainOfCustodyPage';
 import ReportsPage from './pages/ReportsPage';
 import SettingsPage from './pages/SettingsPage';
 import PostureMonitoringPage from './pages/PostureMonitoringPage';
+import RemediationPage from './pages/RemediationPage';
 
 export const App: React.FC = () => {
   return (
@@ -30,6 +31,7 @@ export const App: React.FC = () => {
           <Route path="packets" element={<PacketExplorerPage />} />
           <Route path="custody" element={<ChainOfCustodyPage />} />
           <Route path="monitoring" element={<PostureMonitoringPage />} />
+          <Route path="remediation" element={<RemediationPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

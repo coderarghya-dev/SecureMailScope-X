@@ -14,7 +14,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Terminal,
-  Activity
+  Activity,
+  FileCheck
 } from 'lucide-react';
 import { useHealthStore } from '../../store/useHealthStore';
 import { StatusIndicator } from '../common/StatusIndicator';
@@ -40,6 +41,7 @@ const NAV_GROUPS: NavGroup[] = [
       { name: 'Session Matrix', path: '/sessions', icon: <Layers size={14} /> },
       { name: 'Security Findings', path: '/findings', icon: <AlertTriangle size={14} /> },
       { name: 'Posture Monitoring', path: '/monitoring', icon: <Activity size={14} /> },
+      { name: 'Remediation Playbooks', path: '/remediation', icon: <FileCheck size={14} /> },
     ]
   },
   {

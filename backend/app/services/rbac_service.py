@@ -50,6 +50,11 @@ ROLE_CAPABILITIES: Dict[AnalystRole, Set[Capability]] = {
         Capability.VIEW_MONITORING,
         Capability.RUN_MONITOR_SCAN,
         Capability.VIEW_DRIFT_HISTORY,
+        Capability.VIEW_REMEDIATION,
+        Capability.CREATE_REMEDIATION_PLAN,
+        Capability.EDIT_REMEDIATION_PLAN,
+        Capability.RUN_SIMULATION,
+        Capability.MARK_APPLIED,
     },
     AnalystRole.LEAD_INVESTIGATOR: {
         Capability.VIEW_CASE,
@@ -64,6 +69,12 @@ ROLE_CAPABILITIES: Dict[AnalystRole, Set[Capability]] = {
         Capability.RUN_MONITOR_SCAN,
         Capability.PIN_POSTURE_BASELINE,
         Capability.VIEW_DRIFT_HISTORY,
+        Capability.VIEW_REMEDIATION,
+        Capability.CREATE_REMEDIATION_PLAN,
+        Capability.EDIT_REMEDIATION_PLAN,
+        Capability.RUN_SIMULATION,
+        Capability.MARK_APPLIED,
+        Capability.VERIFY_REMEDIATION,
     },
     AnalystRole.REVIEWER: {
         Capability.VIEW_CASE,
@@ -71,11 +82,15 @@ ROLE_CAPABILITIES: Dict[AnalystRole, Set[Capability]] = {
         Capability.SIGN_OFF,
         Capability.VIEW_MONITORING,
         Capability.VIEW_DRIFT_HISTORY,
+        Capability.VIEW_REMEDIATION,
+        Capability.RUN_SIMULATION,
+        Capability.VERIFY_REMEDIATION,
     },
     AnalystRole.AUDITOR: {
         Capability.VIEW_CASE,
         Capability.VIEW_MONITORING,
         Capability.VIEW_DRIFT_HISTORY,
+        Capability.VIEW_REMEDIATION,
     },
     AnalystRole.ADMIN: {
         Capability.VIEW_CASE,
@@ -92,6 +107,12 @@ ROLE_CAPABILITIES: Dict[AnalystRole, Set[Capability]] = {
         Capability.RUN_MONITOR_SCAN,
         Capability.PIN_POSTURE_BASELINE,
         Capability.VIEW_DRIFT_HISTORY,
+        Capability.VIEW_REMEDIATION,
+        Capability.CREATE_REMEDIATION_PLAN,
+        Capability.EDIT_REMEDIATION_PLAN,
+        Capability.RUN_SIMULATION,
+        Capability.MARK_APPLIED,
+        Capability.VERIFY_REMEDIATION,
     },
 }
 
