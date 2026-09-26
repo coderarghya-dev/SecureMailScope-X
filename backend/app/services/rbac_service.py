@@ -55,6 +55,10 @@ ROLE_CAPABILITIES: Dict[AnalystRole, Set[Capability]] = {
         Capability.EDIT_REMEDIATION_PLAN,
         Capability.RUN_SIMULATION,
         Capability.MARK_APPLIED,
+        Capability.VIEW_PQC_MIGRATION,
+        Capability.CREATE_PQC_ROADMAP,
+        Capability.EDIT_PQC_ROADMAP,
+        Capability.RUN_PQC_GAP_ANALYSIS,
     },
     AnalystRole.LEAD_INVESTIGATOR: {
         Capability.VIEW_CASE,
@@ -75,6 +79,11 @@ ROLE_CAPABILITIES: Dict[AnalystRole, Set[Capability]] = {
         Capability.RUN_SIMULATION,
         Capability.MARK_APPLIED,
         Capability.VERIFY_REMEDIATION,
+        Capability.VIEW_PQC_MIGRATION,
+        Capability.CREATE_PQC_ROADMAP,
+        Capability.EDIT_PQC_ROADMAP,
+        Capability.RUN_PQC_GAP_ANALYSIS,
+        Capability.APPROVE_PQC_ROADMAP,
     },
     AnalystRole.REVIEWER: {
         Capability.VIEW_CASE,
@@ -85,12 +94,15 @@ ROLE_CAPABILITIES: Dict[AnalystRole, Set[Capability]] = {
         Capability.VIEW_REMEDIATION,
         Capability.RUN_SIMULATION,
         Capability.VERIFY_REMEDIATION,
+        Capability.VIEW_PQC_MIGRATION,
+        Capability.APPROVE_PQC_ROADMAP,
     },
     AnalystRole.AUDITOR: {
         Capability.VIEW_CASE,
         Capability.VIEW_MONITORING,
         Capability.VIEW_DRIFT_HISTORY,
         Capability.VIEW_REMEDIATION,
+        Capability.VIEW_PQC_MIGRATION,
     },
     AnalystRole.ADMIN: {
         Capability.VIEW_CASE,
@@ -113,6 +125,11 @@ ROLE_CAPABILITIES: Dict[AnalystRole, Set[Capability]] = {
         Capability.RUN_SIMULATION,
         Capability.MARK_APPLIED,
         Capability.VERIFY_REMEDIATION,
+        Capability.VIEW_PQC_MIGRATION,
+        Capability.CREATE_PQC_ROADMAP,
+        Capability.EDIT_PQC_ROADMAP,
+        Capability.RUN_PQC_GAP_ANALYSIS,
+        Capability.APPROVE_PQC_ROADMAP,
     },
 }
 

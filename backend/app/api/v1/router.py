@@ -3,7 +3,20 @@ SecureMailScope X - API Version 1 Router Aggregator
 """
 
 from fastapi import APIRouter
-from app.api.v1.endpoints import health, analyze, sessions, rules, enrichment, advanced, correlation, siem, rbac, monitoring, remediation
+from app.api.v1.endpoints import (
+    health,
+    analyze,
+    sessions,
+    rules,
+    enrichment,
+    advanced,
+    correlation,
+    siem,
+    rbac,
+    monitoring,
+    remediation,
+    pqc_migration,
+)
 
 api_v1_router = APIRouter(prefix="/api/v1")
 
@@ -19,4 +32,5 @@ api_v1_router.include_router(siem.router, tags=["SIEM / SOC Integration & Event 
 api_v1_router.include_router(rbac.router, tags=["Multi-Analyst RBAC & Peer Sign-Off"])
 api_v1_router.include_router(monitoring.router, tags=["Continuous Posture Monitoring & Drift Engine"])
 api_v1_router.include_router(remediation.router, tags=["Remediation Playbooks & Verify-After-Fix Engine"])
+api_v1_router.include_router(pqc_migration.router, tags=["Post-Quantum Cryptography Migration Planner"])
 

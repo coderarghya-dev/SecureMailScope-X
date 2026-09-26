@@ -798,6 +798,89 @@ def init_db(db_path: Optional[str] = None):
         )
     """)
 
+    # 29. PQC Cryptographic Assets table (Phase 24 Inventory)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pqc_crypto_assets (
+            asset_id TEXT PRIMARY KEY,
+            analysis_id TEXT,
+            case_id TEXT,
+            target_id TEXT,
+            protocol TEXT NOT NULL DEFAULT 'TLS',
+            endpoint TEXT NOT NULL,
+            crypto_layer TEXT NOT NULL,
+            algorithm_family TEXT NOT NULL,
+            algorithm_name TEXT NOT NULL,
+            key_size INTEGER,
+            certificate_fingerprint TEXT,
+            certificate_key_algorithm TEXT,
+            kex_type TEXT,
+            signature_algorithm TEXT,
+            pqc_status TEXT NOT NULL DEFAULT 'UNKNOWN',
+            hybrid_status INTEGER NOT NULL DEFAULT 0,
+            evidence_reference TEXT NOT NULL,
+            observed_at TEXT NOT NULL
+        )
+    """)
+
+    # 30. PQC Migration Roadmaps table (Phase 24 Transition Roadmaps)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pqc_migration_roadmaps (
+            roadmap_id TEXT PRIMARY KEY,
+            case_id TEXT,
+            target_id TEXT,
+            analysis_id TEXT,
+            title TEXT NOT NULL,
+            description TEXT,
+            current_readiness TEXT NOT NULL DEFAULT 'UNKNOWN',
+            target_profile TEXT NOT NULL DEFAULT 'HYBRID_KEM_TARGET',
+            exposure_level TEXT NOT NULL DEFAULT 'UNKNOWN',
+            status TEXT NOT NULL DEFAULT 'DRAFT',
+            version INTEGER NOT NULL DEFAULT 1,
+            approved_by TEXT,
+            approved_at TEXT,
+            approval_signature TEXT,
+            created_by TEXT NOT NULL DEFAULT 'analyst-01',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (case_id) REFERENCES cases (id) ON DELETE SET NULL,
+            FOREIGN KEY (target_id) REFERENCES monitored_targets (target_id) ON DELETE SET NULL
+        )
+    """)
+
+    # 31. PQC Migration Steps table (Phase 24 7-Phase Action Items)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pqc_migration_steps (
+            step_id TEXT PRIMARY KEY,
+            roadmap_id TEXT NOT NULL,
+            phase_name TEXT NOT NULL,
+            sequence_order INTEGER NOT NULL,
+            objective TEXT NOT NULL,
+            recommended_actions_json TEXT NOT NULL,
+            validation_criteria_json TEXT NOT NULL,
+            rollback_considerations_json TEXT NOT NULL,
+            blocking_issues_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'PENDING',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (roadmap_id) REFERENCES pqc_migration_roadmaps (roadmap_id) ON DELETE CASCADE
+        )
+    """)
+
+    # 32. PQC Gap Findings table (Phase 24 Cryptographic Weakness Findings)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pqc_gap_findings (
+            gap_id TEXT PRIMARY KEY,
+            roadmap_id TEXT,
+            asset_id TEXT,
+            gap_type TEXT NOT NULL,
+            severity TEXT NOT NULL DEFAULT 'MEDIUM',
+            description TEXT NOT NULL,
+            evidence_reference TEXT NOT NULL,
+            remediation_action TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (roadmap_id) REFERENCES pqc_migration_roadmaps (roadmap_id) ON DELETE CASCADE
+        )
+    """)
+
     # Create Performance Indexes
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_analysis_id ON sessions(analysis_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_findings_analysis_id ON findings(analysis_id);")
@@ -839,6 +922,12 @@ def init_db(db_path: Optional[str] = None):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_remediation_plan_items_code ON remediation_plan_items(finding_code);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_remediation_verifications_plan ON remediation_verifications(plan_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_remediation_verifications_status ON remediation_verifications(verification_status);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_pqc_crypto_assets_analysis ON pqc_crypto_assets(analysis_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_pqc_crypto_assets_target ON pqc_crypto_assets(target_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_pqc_migration_roadmaps_case ON pqc_migration_roadmaps(case_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_pqc_migration_roadmaps_target ON pqc_migration_roadmaps(target_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_pqc_migration_steps_roadmap ON pqc_migration_steps(roadmap_id, sequence_order);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_pqc_gap_findings_roadmap ON pqc_gap_findings(roadmap_id);")
 
     conn.commit()
     conn.close()

@@ -206,5 +206,58 @@
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
+## 24. Post-Quantum Cryptography Migration Planner & Hybrid Transition Roadmap (Phase 24)
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│               Cryptographic Asset Inventory Discovery                  │
+│   - Extracts observed TLS versions, ciphers, key exchanges, and certs │
+│     from PCAP sessions, active scans, and case evidence                │
+│   - Persists immutable asset records into pqc_crypto_assets            │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│           Deterministic Quantum Exposure & HNDL Risk Engine            │
+│   - Categorical Exposure Modeling:                                     │
+│       * CRITICAL: Static RSA / non-PFS key exchange                    │
+│       * HIGH: Classical ECDHE / DHE without PQC (HNDL vulnerability)   │
+│       * LOW: Hybrid ML-KEM-768 / Pure PQC key exchange                 │
+│       * UNKNOWN: Unassessed or missing parameters                      │
+│   - Data Sensitivity Lifetime: SHORT_TERM, MEDIUM_TERM, LONG_TERM,     │
+│     UNKNOWN (strictly preserved without artificial assumptions)        │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                  Target Architecture & Gap Analysis                    │
+│   - Profiles: HYBRID_KEM_TARGET, HYBRID_SIGNATURE_TARGET,              │
+│     PQC_CERTIFICATE_TARGET, PQC_CAPABLE_MAIL_GATEWAY, etc.             │
+│   - Identifies concrete transition gaps in pqc_gap_findings            │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│              7-Phase Hybrid Transition Roadmap Lifecycle               │
+│   - PHASE_A_INVENTORY                  -> Discovery & asset catalog    │
+│   - PHASE_B_RISK_ASSESSMENT            -> HNDL exposure analysis       │
+│   - PHASE_C_TARGET_ARCHITECTURE_SEL    -> Hybrid profile selection     │
+│   - PHASE_D_PILOT_HYBRID_KEM           -> Staging ML-KEM pilot         │
+│   - PHASE_E_HYBRID_SIGNATURES          -> Dual S/MIME signatures       │
+│   - PHASE_F_PQC_PRIMARY_TRANSITION     -> Target advisory transition   │
+│   - PHASE_G_VERIFICATION               -> Forensic probe verification  │
+│   - Every step features validation criteria and rollback guidance      │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│              Cryptographic Sign-Off & RBAC Authorization               │
+│   - Ed25519 & RSA-PSS digital signatures over canonical roadmap manifest│
+│   - Multi-Analyst RBAC: VIEW, CREATE, EDIT, RUN_GAP, APPROVE           │
+│   - Audit events hash-chained into forensic system ledger              │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+
 
 
