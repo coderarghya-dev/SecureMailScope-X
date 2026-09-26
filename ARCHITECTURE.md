@@ -66,3 +66,50 @@
    - TLS 1.3 encrypts all certificates in the Encrypted Extensions stream.
    - Passive monitors cannot extract plaintext certificates without decryption secrets.
    - Factual report: `Unavailable from passive capture (TLS 1.3 encrypted handshake)`.
+
+## 3. Multi-Analyst RBAC & Cryptographic Peer Sign-Off Architecture (Phase 20)
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│              Multi-Analyst Role-Based Access Control (RBAC)            │
+│   FORENSIC_ANALYST  |  LEAD_INVESTIGATOR  |  REVIEWER  |  AUDITOR  |   │
+│                                  ADMIN                                 │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Case Assignment Model                           │
+│   - Primary Investigator                                               │
+│   - Assigned Forensic Analysts                                         │
+│   - Assigned Independent Reviewers                                     │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│               Deterministic Case Manifest & Mutation Tracking          │
+│   - Canonical sorting of artifacts, analyses, notes, and metadata      │
+│   - SHA-256 hash strictly computed per case state revision             │
+│   - Any state mutation invalidates previous review approvals           │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│           Cryptographic Peer Sign-Off & M-of-N Approval Engine         │
+│   - Review decisions (APPROVED / CHANGES_REQUESTED / REJECTED)         │
+│   - Asymmetric digital signatures (Ed25519 / RSA-PSS)                  │
+│   - Canonical payload binding: {case_id, manifest_sha256, reviewer_id, │
+│                                 decision, timestamp}                   │
+│   - M-of-N Quorum Thresholds & Lead Investigator requirement           │
+│   - Self-Review Prevention Enforcement                                 │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                  Authorized Case Sealing & Chain Audit                 │
+│   - AuthorizationService capability check: SEAL_CASE                   │
+│   - Quorum satisfaction on CURRENT manifest verification               │
+│   - Append-only hash-chained audit events: CASE_REVIEW_APPROVED,       │
+│     CASE_SIGNOFF_VERIFIED, CASE_SEAL_AUTHORIZED, ROLE_CHANGED          │
+└────────────────────────────────────────────────────────────────────────┘
+```
+

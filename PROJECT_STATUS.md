@@ -295,48 +295,29 @@ python .\backend\tests\test_smtp_starttls.py
 ```
 Status: Ran 4 tests, OK (4/4 PASS - SMTP PASS, IMAP PASS, POP3S PASS, POP3 110 STLS pending)
 
+### Phase 19 — SIEM / SOC Integration & Event Export Engine (VERIFIED / PASS)
+- Normalized SOC Telemetry Schemas: PASS (`backend/app/schemas/siem.py`)
+- Export Formatters (JSON, CEF, RFC 5424 Syslog): PASS (`backend/app/services/siem_formatters.py`)
+- Delivery Transports (Local File, UDP Syslog, TCP Syslog, HTTPS JSON Webhook): PASS (`backend/app/services/siem_transports.py`)
+- Event Extraction & Filtering Service: PASS (`backend/app/services/siem_service.py`)
+- SIEM / SOC REST Endpoints: PASS (`backend/app/api/v1/endpoints/siem.py`)
+- Phase 19 Test Suite: PASS (`backend/tests/test_siem_integration.py`, 30/30 tests)
+
+### Phase 20 — Multi-Analyst RBAC & Cryptographic Peer Sign-Off Engine (VERIFIED / PASS)
+- Role & Capability Matrix (FORENSIC_ANALYST, LEAD_INVESTIGATOR, REVIEWER, AUDITOR, ADMIN): PASS (`backend/app/schemas/rbac.py`)
+- Centralized Authorization & Registry Service: PASS (`backend/app/services/rbac_service.py`)
+- Case Assignment Model (`case_assignments`): PASS (Primary investigator, assigned analysts, assigned reviewers)
+- Deterministic Manifest Generation & Mutation Tracking: PASS (`CaseManifestService.compute_case_manifest_sha256`)
+- Review Lifecycle & Manifest Binding: PASS (Review approval bound to exact manifest hash at review)
+- Cryptographic Peer Sign-Off (Ed25519 / RSA-PSS): PASS (`PeerReviewService.submit_review`, `verify_review_signature`)
+- M-of-N Workflow Approval & Sealing Policy: PASS (`case_review_policies`, quorum evaluator, self-review prevention)
+- Case Seal Authorization Integration: PASS (`PeerReviewService.authorize_and_seal_case`)
+- RBAC & Peer Review REST API: PASS (`backend/app/api/v1/endpoints/rbac.py`)
+- Phase 20 Test Suite: PASS (`backend/tests/test_rbac_peer_review.py`, 30/30 tests)
+
 ---
 
-## NEXT MILESTONE
-
-### Phase 5 — SecureMailScope X SOC / Forensic Dashboard Frontend
-
-The frontend will consume the verified FastAPI REST API (`http://127.0.0.1:8000/api/v1`) and visualize:
-1. **Interactive PCAP Upload & Analysis**: Drag-and-drop `.pcap`/`.pcapng` upload with progress and health status.
-2. **Reconstructed Session Cards & Matrix**: Table/card view of email sessions with protocol, ports, security mode, and grade badges.
-3. **Cryptographic State Machine & STARTTLS/STLS Upgrade Inspector**: Visual timeline of protocol transition steps and exact packet frame evidence.
-4. **Deep-Dive TLS Handshake Inspector**: TLS version, negotiated cipher suite, PFS status, Key Share, SNI, and RFC 8446 observability boundaries.
-5. **Capture Health & Evidence Confidence Gauges**: Interactive scoring dials with explainable deduction breakdowns and confidence factors.
-6. **Security Findings & NIST SP 800-52r2 Guidance**: Severity-categorized findings with frame references and remediation steps.
-7. **Post-Quantum Readiness & HNDL Threat Matrix**: Classical KEX vulnerability assessment and hybrid KEM migration roadmap.
-8. **Raw Packet Stream Dissection**: Paginated forensic packet inspection table.
-9. **Future Chain-of-Custody Ledger & Export Panels**: SHA-256 integrity verification, JSON/PDF report export.
-
-Do not modify or weaken the currently passing Phase 1, Phase 2, Phase 3, and Phase 4 forensic backends and APIs.
-
----
-
-## Resume Instructions for a New AI Agent
-
-Before changing anything:
-
-1. Read this PROJECT_STATUS.md completely.
-2. Inspect the existing repository.
-3. Read README.md and ARCHITECTURE.md.
-4. Inspect existing parser, scoring, API, and test files.
-5. Run the 4 baseline test suites to confirm everything passes:
-
-   ```powershell
-   python .\backend\tests\test_api_v1.py
-   python .\backend\tests\test_phase3_scoring.py
-   python .\backend\tests\test_pop3_analyzer.py
-   python .\backend\tests\test_smtp_starttls.py
-   ```
-
-6. Confirm all 4 test suites pass (13/13, 10/10, 4/4, 4/4).
-7. Do NOT rebuild or overwrite the existing working modules.
-8. Continue directly from the NEXT MILESTONE:
-   **Phase 5 — SecureMailScope X SOC / Forensic Dashboard Frontend**.
-9. Preserve all verified SMTP, IMAP, POP3S, and POP3 parsers, scoring engine, and FastAPI REST endpoints.
-10. Do not weaken existing tests or fabricate missing packet evidence.
-11. First create/review the Phase 5 Frontend implementation plan before creating the UI components.
+## Current Test Suite Status
+Total tests: **445 tests** across all 20 phases.
+Status: **445/445 PASS** (0 failed, 0 skipped).
+Frontend: Production build passes with 0 errors (`npm run build`).

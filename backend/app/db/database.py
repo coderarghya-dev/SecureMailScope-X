@@ -184,12 +184,20 @@ def init_db(db_path: Optional[str] = None):
             if "external_verification_timestamp" not in existing_cols:
                 cursor.execute("ALTER TABLE notarization_records ADD COLUMN external_verification_timestamp TEXT;")
 
-    # 0. Analysts table (Attribution Registry - No credentials or secrets)
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='analysts';")
+    if cursor.fetchone():
+        cursor.execute("PRAGMA table_info(analysts);")
+        existing_cols = {row["name"] for row in cursor.fetchall()}
+        if "role" not in existing_cols:
+            cursor.execute("ALTER TABLE analysts ADD COLUMN role TEXT NOT NULL DEFAULT 'FORENSIC_ANALYST';")
+
+    # 0. Analysts table (Attribution & RBAC Registry - No credentials or secrets)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS analysts (
             analyst_id TEXT PRIMARY KEY,
             display_name TEXT NOT NULL,
             email_or_label TEXT,
+            role TEXT NOT NULL DEFAULT 'FORENSIC_ANALYST',
             identity_source TEXT NOT NULL DEFAULT 'LOCAL_DECLARED',
             attribution_status TEXT NOT NULL DEFAULT 'ATTRIBUTED',
             created_at TEXT NOT NULL,
@@ -584,6 +592,71 @@ def init_db(db_path: Optional[str] = None):
         )
     """)
 
+    # 19. SIEM Deliveries table (Phase 19 SIEM Delivery Audit Log)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS siem_deliveries (
+            delivery_id TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL,
+            format TEXT NOT NULL,
+            transport TEXT NOT NULL,
+            destination_label TEXT NOT NULL,
+            event_count INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            error_message TEXT
+        )
+    """)
+
+    # 20. Case Assignments table (Phase 20 Multi-Analyst RBAC)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS case_assignments (
+            assignment_id TEXT PRIMARY KEY,
+            case_id TEXT NOT NULL,
+            analyst_id TEXT NOT NULL,
+            analyst_name TEXT NOT NULL,
+            role TEXT NOT NULL,
+            assigned_by TEXT NOT NULL,
+            assigned_at TEXT NOT NULL,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            FOREIGN KEY (case_id) REFERENCES cases (id) ON DELETE CASCADE
+        )
+    """)
+
+    # 21. Case Review Policies table (Phase 20 M-of-N Approval Policy)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS case_review_policies (
+            policy_id TEXT PRIMARY KEY,
+            case_id TEXT UNIQUE NOT NULL,
+            min_approvals_required INTEGER NOT NULL DEFAULT 1,
+            require_lead_investigator_approval INTEGER NOT NULL DEFAULT 0,
+            allow_self_review INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (case_id) REFERENCES cases (id) ON DELETE CASCADE
+        )
+    """)
+
+    # 22. Case Reviews & Cryptographic Sign-Offs (Phase 20 Peer Review)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS case_reviews (
+            review_id TEXT PRIMARY KEY,
+            case_id TEXT NOT NULL,
+            manifest_sha256_at_review TEXT NOT NULL,
+            reviewer_id TEXT NOT NULL,
+            reviewer_name TEXT NOT NULL,
+            reviewer_role TEXT NOT NULL,
+            decision TEXT NOT NULL,
+            comments TEXT,
+            signature_id TEXT,
+            signature_value TEXT,
+            signed_payload_sha256 TEXT,
+            public_key_pem TEXT,
+            public_key_fingerprint TEXT,
+            reviewed_at TEXT NOT NULL,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            FOREIGN KEY (case_id) REFERENCES cases (id) ON DELETE CASCADE
+        )
+    """)
+
     # Create Performance Indexes
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_analysis_id ON sessions(analysis_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_findings_analysis_id ON findings(analysis_id);")
@@ -606,6 +679,10 @@ def init_db(db_path: Optional[str] = None):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_notarization_records_sig ON notarization_records(signature_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_notarization_records_proof_sha ON notarization_records(local_proof_sha256);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_notarization_records_tx_hash ON notarization_records(transaction_hash);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_case_assignments_case ON case_assignments(case_id, is_active);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_case_assignments_analyst ON case_assignments(analyst_id, is_active);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_case_reviews_case ON case_reviews(case_id, is_active);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_case_reviews_manifest ON case_reviews(case_id, manifest_sha256_at_review);")
 
     conn.commit()
     conn.close()
