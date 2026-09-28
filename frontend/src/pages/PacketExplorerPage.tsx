@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getApiUrl } from '../api/client';
 import {
   FileCode2,
   Terminal,
@@ -41,7 +42,7 @@ export const PacketExplorerPage: React.FC = () => {
     const sessionId = currentAnalysis.sessions?.[0]?.session_id || currentAnalysis.streams?.[0]?.stream_id;
     if (!sessionId) return;
     
-    fetch(`/api/v1/analyses/${currentAnalysis.analysis_id}/sessions/${sessionId}/packets?limit=500`)
+    fetch(getApiUrl(`/api/v1/analyses/${currentAnalysis.analysis_id}/sessions/${sessionId}/packets?limit=500`))
       .then(res => res.ok ? res.json() : [])
       .then((data: any[]) => {
         if (Array.isArray(data) && data.length > 0) {

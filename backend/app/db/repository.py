@@ -639,12 +639,13 @@ class ForensicRepository:
             for idx, ev in enumerate(events):
                 cursor.execute(
                     """
-                    INSERT OR IGNORE INTO custody_events (
+                    INSERT INTO custody_events (
                         event_id, analysis_id, timestamp_utc, event_type,
                         artifact_hash, previous_event_hash, current_event_hash,
                         details, sequence_order, actor_id, actor_display_name,
                         actor_identity_source, actor_attribution_status, hash_format_version
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (event_id) DO NOTHING
                     """,
                     (
                         ev.event_id,
@@ -2085,7 +2086,7 @@ class ForensicRepository:
 
         try:
             cursor.execute(
-                "INSERT OR IGNORE INTO case_analyses (case_id, analysis_id, attached_at, attached_by) VALUES (?, ?, ?, ?)",
+                "INSERT INTO case_analyses (case_id, analysis_id, attached_at, attached_by) VALUES (?, ?, ?, ?) ON CONFLICT (case_id, analysis_id) DO NOTHING",
                 (case_id, analysis_id, now_iso, act.actor_id)
             )
             cursor.execute("UPDATE cases SET updated_at = ? WHERE id = ?", (now_iso, case_id))
@@ -2404,12 +2405,24 @@ class ForensicRepository:
 
         cursor.execute(
             """
-            INSERT OR REPLACE INTO simulations (
+            INSERT INTO simulations (
                 simulation_id, analysis_id, session_id, requested_actions_json,
                 parameters_json, projection_json, projection_sha256,
                 created_by_actor_id, identity_source,
                 authoritative, historical_applicability, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (simulation_id) DO UPDATE SET
+                analysis_id = excluded.analysis_id,
+                session_id = excluded.session_id,
+                requested_actions_json = excluded.requested_actions_json,
+                parameters_json = excluded.parameters_json,
+                projection_json = excluded.projection_json,
+                projection_sha256 = excluded.projection_sha256,
+                created_by_actor_id = excluded.created_by_actor_id,
+                identity_source = excluded.identity_source,
+                authoritative = excluded.authoritative,
+                historical_applicability = excluded.historical_applicability,
+                created_at = excluded.created_at
             """,
             (
                 simulation_id,
@@ -2489,11 +2502,22 @@ class ForensicRepository:
 
         cursor.execute(
             """
-            INSERT OR REPLACE INTO active_scans (
+            INSERT INTO active_scans (
                 scan_id, target_host, connected_ip, ports_scanned_json,
                 initiated_by_actor_id, identity_source,
                 provenance, historical_applicability, result_json, result_sha256, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (scan_id) DO UPDATE SET
+                target_host = excluded.target_host,
+                connected_ip = excluded.connected_ip,
+                ports_scanned_json = excluded.ports_scanned_json,
+                initiated_by_actor_id = excluded.initiated_by_actor_id,
+                identity_source = excluded.identity_source,
+                provenance = excluded.provenance,
+                historical_applicability = excluded.historical_applicability,
+                result_json = excluded.result_json,
+                result_sha256 = excluded.result_sha256,
+                created_at = excluded.created_at
             """,
             (
                 scan_id,
@@ -2571,12 +2595,23 @@ class ForensicRepository:
 
         cursor.execute(
             """
-            INSERT OR REPLACE INTO dns_enrichments (
+            INSERT INTO dns_enrichments (
                 enrichment_id, target_domain, resolver_provider,
                 queried_by_actor_id, identity_source,
                 provenance, historical_applicability, result_json, result_sha256,
                 queried_at_utc, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (enrichment_id) DO UPDATE SET
+                target_domain = excluded.target_domain,
+                resolver_provider = excluded.resolver_provider,
+                queried_by_actor_id = excluded.queried_by_actor_id,
+                identity_source = excluded.identity_source,
+                provenance = excluded.provenance,
+                historical_applicability = excluded.historical_applicability,
+                result_json = excluded.result_json,
+                result_sha256 = excluded.result_sha256,
+                queried_at_utc = excluded.queried_at_utc,
+                created_at = excluded.created_at
             """,
             (
                 enrichment_id,

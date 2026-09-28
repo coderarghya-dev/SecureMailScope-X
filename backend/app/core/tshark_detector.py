@@ -10,6 +10,9 @@ from typing import Optional, Tuple
 
 
 DEFAULT_TSHARK_PATHS = [
+    "/usr/bin/tshark",
+    "/usr/local/bin/tshark",
+    "/usr/sbin/tshark",
     r"C:\Program Files\Wireshark\tshark.exe",
     r"C:\Program Files (x86)\Wireshark\tshark.exe",
     r"D:\Program Files\Wireshark\tshark.exe",

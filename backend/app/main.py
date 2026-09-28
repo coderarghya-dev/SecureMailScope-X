@@ -97,10 +97,27 @@ def root():
 
 @app.get("/health", tags=["Root"])
 def root_health():
+    from app.core.tshark_detector import TSharkDetector
+    from app.db.database import get_database_engine_type, get_db_connection
+    tshark_ok, tshark_ver = TSharkDetector.get_version()
+    db_engine = get_database_engine_type().lower()
+    db_ok = True
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT 1;")
+        cur.fetchone()
+        conn.close()
+    except Exception:
+        db_ok = False
+
     return {
-        "status": "healthy",
+        "status": "healthy" if (tshark_ok and db_ok) else "degraded",
         "version": API_VERSION,
-        "mode": "offline_first_local"
+        "database_connected": db_ok,
+        "database_engine": db_engine,
+        "tshark_available": tshark_ok,
+        "mode": "cloud_deployed" if db_engine == "postgresql" else "offline_first_local"
     }
 
 

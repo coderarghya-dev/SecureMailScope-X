@@ -14,6 +14,7 @@ import {
   FileText
 } from 'lucide-react';
 import { useAnalysisStore } from '../store/useAnalysisStore';
+import { getApiUrl } from '../api/client';
 
 interface CustodyEvent {
   event_id: string;
@@ -67,7 +68,7 @@ export const ChainOfCustodyPage: React.FC = () => {
   const fetchCustody = async () => {
     if (!currentAnalysis) return;
     try {
-      const res = await fetch(`/api/v1/analyses/${currentAnalysis.analysis_id}/custody`);
+      const res = await fetch(getApiUrl(`/api/v1/analyses/${currentAnalysis.analysis_id}/custody`));
       if (res.ok) {
         const data = await res.json();
         setCustodyData(data);
@@ -84,7 +85,7 @@ export const ChainOfCustodyPage: React.FC = () => {
     setTamperTarget('none');
     setTamperResult(null);
     try {
-      const res = await fetch(`/api/v1/analyses/${currentAnalysis.analysis_id}/custody/verify`, {
+      const res = await fetch(getApiUrl(`/api/v1/analyses/${currentAnalysis.analysis_id}/custody/verify`), {
         method: 'POST'
       });
       if (res.ok) {
@@ -105,7 +106,7 @@ export const ChainOfCustodyPage: React.FC = () => {
     setIsTampering(true);
     setError(null);
     try {
-      const res = await fetch(`/api/v1/analyses/${currentAnalysis.analysis_id}/custody/tamper-demo?target=${target}`, {
+      const res = await fetch(getApiUrl(`/api/v1/analyses/${currentAnalysis.analysis_id}/custody/tamper-demo?target=${target}`), {
         method: 'POST'
       });
       if (res.ok) {

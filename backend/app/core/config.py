@@ -13,6 +13,13 @@ TEMP_UPLOAD_DIR = os.path.join(BACKEND_DIR, "temp_uploads")
 # Ensure temporary upload directory exists
 os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
 
+# Environment & Operational Mode
+APP_ENV = os.environ.get("APP_ENV", "development").lower()
+REPORT_STORAGE_MODE = os.environ.get("REPORT_STORAGE_MODE", "LOCAL").upper()
+
+# Database Configuration
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
 # Security & Upload Constraints
 MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
 ALLOWED_EXTENSIONS = {".pcap", ".pcapng", ".cap"}
@@ -31,8 +38,8 @@ VALID_MAGIC_BYTES = (
     MAGIC_PCAPNG
 )
 
-# CORS Configuration for local frontend dashboards
-CORS_ORIGINS: List[str] = [
+# CORS Configuration
+_DEFAULT_CORS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:5173",
@@ -40,6 +47,14 @@ CORS_ORIGINS: List[str] = [
     "http://localhost:8000",
     "http://127.0.0.1:8000"
 ]
+
+_env_cors = os.environ.get("CORS_ORIGINS")
+if _env_cors:
+    # Comma-separated or whitespace-separated origins
+    parsed_origins = [orig.strip() for orig in _env_cors.split(",") if orig.strip()]
+    CORS_ORIGINS: List[str] = parsed_origins if parsed_origins else _DEFAULT_CORS
+else:
+    CORS_ORIGINS: List[str] = _DEFAULT_CORS
 
 # API Metadata
 API_TITLE = "SecureMailScope X — Explainable AI Email Forensic API"

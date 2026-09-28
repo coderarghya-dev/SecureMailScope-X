@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getApiUrl } from '../api/client';
 import {
   ShieldAlert,
   Terminal,
@@ -158,7 +159,7 @@ export const RemediationPage: React.FC = () => {
   const handleGeneratePlaybooks = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/v1/remediation/playbooks/generate', {
+      const res = await fetch(getApiUrl('/api/v1/remediation/playbooks/generate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -181,7 +182,7 @@ export const RemediationPage: React.FC = () => {
   const handleRunSimulation = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/v1/remediation/simulate', {
+      const res = await fetch(getApiUrl('/api/v1/remediation/simulate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -212,7 +213,7 @@ export const RemediationPage: React.FC = () => {
   const fetchPlans = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/v1/remediation/plans');
+      const res = await fetch(getApiUrl('/api/v1/remediation/plans'));
       if (res.ok) {
         const data = await res.json();
         setPlans(data || []);
@@ -241,7 +242,7 @@ export const RemediationPage: React.FC = () => {
         limitations: p.limitations,
       }));
 
-      const res = await fetch('/api/v1/remediation/plans', {
+      const res = await fetch(getApiUrl('/api/v1/remediation/plans'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -269,7 +270,7 @@ export const RemediationPage: React.FC = () => {
     if (!selectedPlan) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/v1/remediation/plans/${selectedPlan.plan_id}/apply`, {
+      const res = await fetch(getApiUrl(`/api/v1/remediation/plans/${selectedPlan.plan_id}/apply`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -294,7 +295,7 @@ export const RemediationPage: React.FC = () => {
     if (!selectedPlan) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/v1/remediation/plans/${selectedPlan.plan_id}/verify`, {
+      const res = await fetch(getApiUrl(`/api/v1/remediation/plans/${selectedPlan.plan_id}/verify`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -309,7 +310,7 @@ export const RemediationPage: React.FC = () => {
         setShowVerifyModal(false);
         fetchPlans();
         // Refresh selected plan
-        const planRes = await fetch(`/api/v1/remediation/plans/${selectedPlan.plan_id}`);
+        const planRes = await fetch(getApiUrl(`/api/v1/remediation/plans/${selectedPlan.plan_id}`));
         if (planRes.ok) {
           setSelectedPlan(await planRes.json());
         }
@@ -324,7 +325,7 @@ export const RemediationPage: React.FC = () => {
 
   const fetchVerifications = async (planId: string) => {
     try {
-      const res = await fetch(`/api/v1/remediation/plans/${planId}/verifications`);
+      const res = await fetch(getApiUrl(`/api/v1/remediation/plans/${planId}/verifications`));
       if (res.ok) {
         const data = await res.json();
         setPlanVerifications(data || []);

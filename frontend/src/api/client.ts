@@ -1,6 +1,15 @@
 import { SystemHealth, AnalysisSummary } from '../types/forensic';
 
-const API_BASE = '/api/v1';
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+export const API_BASE = `${API_BASE_URL}/api/v1`;
+
+export function getApiUrl(path: string): string {
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  if (cleanPath.startsWith('/api/v1')) {
+    return `${API_BASE_URL}${cleanPath}`;
+  }
+  return `${API_BASE}${cleanPath}`;
+}
 
 export async function fetchHealth(): Promise<SystemHealth> {
   const res = await fetch(`${API_BASE}/health`);

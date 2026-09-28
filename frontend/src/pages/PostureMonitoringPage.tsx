@@ -17,6 +17,7 @@ import {
   TrendingUp,
   MinusCircle
 } from 'lucide-react';
+import { getApiUrl } from '../api/client';
 
 interface MonitoredTarget {
   target_id: string;
@@ -108,9 +109,9 @@ export const PostureMonitoringPage: React.FC = () => {
     setLoading(true);
     try {
       const [targetsRes, summaryRes, driftRes] = await Promise.all([
-        fetch('/api/v1/monitoring/targets'),
-        fetch('/api/v1/monitoring/summary'),
-        fetch('/api/v1/monitoring/drift?limit=50'),
+        fetch(getApiUrl('/api/v1/monitoring/targets')),
+        fetch(getApiUrl('/api/v1/monitoring/summary')),
+        fetch(getApiUrl('/api/v1/monitoring/drift?limit=50')),
       ]);
 
       if (targetsRes.ok) {
@@ -135,7 +136,7 @@ export const PostureMonitoringPage: React.FC = () => {
 
   const fetchSnapshots = async (targetId: string) => {
     try {
-      const res = await fetch(`/api/v1/monitoring/targets/${targetId}/snapshots?limit=25`);
+      const res = await fetch(getApiUrl(`/api/v1/monitoring/targets/${targetId}/snapshots?limit=25`));
       if (res.ok) {
         setSnapshots(await res.json());
       }
@@ -157,7 +158,7 @@ export const PostureMonitoringPage: React.FC = () => {
   const handleCreateTarget = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/v1/monitoring/targets', {
+      const res = await fetch(getApiUrl('/api/v1/monitoring/targets'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
@@ -183,7 +184,7 @@ export const PostureMonitoringPage: React.FC = () => {
   const handleScanTarget = async (targetId: string) => {
     setScanningTargetId(targetId);
     try {
-      const res = await fetch(`/api/v1/monitoring/targets/${targetId}/scan?allow_local_testing=true`, {
+      const res = await fetch(getApiUrl(`/api/v1/monitoring/targets/${targetId}/scan?allow_local_testing=true`), {
         method: 'POST',
       });
       if (res.ok) {
@@ -201,7 +202,7 @@ export const PostureMonitoringPage: React.FC = () => {
 
   const handlePinBaseline = async (targetId: string, snapshotId: string) => {
     try {
-      const res = await fetch(`/api/v1/monitoring/targets/${targetId}/baseline/${snapshotId}`, {
+      const res = await fetch(getApiUrl(`/api/v1/monitoring/targets/${targetId}/baseline/${snapshotId}`), {
         method: 'POST',
       });
       if (res.ok) {
@@ -215,7 +216,7 @@ export const PostureMonitoringPage: React.FC = () => {
   const handleRunDueScans = async () => {
     setLoading(true);
     try {
-      await fetch('/api/v1/monitoring/scheduler/run-due?allow_local_testing=true', { method: 'POST' });
+      await fetch(getApiUrl('/api/v1/monitoring/scheduler/run-due?allow_local_testing=true'), { method: 'POST' });
       await fetchData();
       if (selectedTargetId) {
         await fetchSnapshots(selectedTargetId);

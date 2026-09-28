@@ -7,6 +7,7 @@ import {
   UploadCloud,
 } from 'lucide-react';
 import { useAnalysisStore } from '../store/useAnalysisStore';
+import { getApiUrl } from '../api/client';
 
 export const ReportsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -103,7 +104,7 @@ export const ReportsPage: React.FC = () => {
 
     try {
       const response = await fetch(
-        `/api/v1/analyze/${currentAnalysis.analysis_id}/pdf`
+        getApiUrl(`/api/v1/analyze/${currentAnalysis.analysis_id}/pdf`)
       );
 
       if (!response.ok) {
@@ -132,7 +133,7 @@ export const ReportsPage: React.FC = () => {
       console.error('Failed to download PDF:', err);
 
       window.open(
-        `/api/v1/analyze/${currentAnalysis.analysis_id}/pdf`,
+        getApiUrl(`/api/v1/analyze/${currentAnalysis.analysis_id}/pdf`),
         '_blank'
       );
     } finally {

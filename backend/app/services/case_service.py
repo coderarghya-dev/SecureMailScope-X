@@ -168,7 +168,7 @@ class CaseService:
         )
         if analysis_id:
             cursor.execute(
-                "INSERT OR IGNORE INTO case_analyses (case_id, analysis_id, attached_at, attached_by) VALUES (?, ?, ?, ?)",
+                "INSERT INTO case_analyses (case_id, analysis_id, attached_at, attached_by) VALUES (?, ?, ?, ?) ON CONFLICT (case_id, analysis_id) DO NOTHING",
                 (case_id, analysis_id, now_iso, attached_by)
             )
         cursor.execute("UPDATE cases SET updated_at = ? WHERE id = ?", (now_iso, case_id))

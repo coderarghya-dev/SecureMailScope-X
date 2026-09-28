@@ -18,6 +18,9 @@ class HealthResponse(BaseModel):
     port_110_stls_real_capture_status: str = Field(
         default="PENDING (Target server unavailable / unserviceable on port 110)"
     )
+    database_connected: bool = Field(default=True)
+    database_engine: str = Field(default="sqlite")
+    mode: str = Field(default="offline_first_local")
 
 
 # ---------------------------------------------------------------------------
