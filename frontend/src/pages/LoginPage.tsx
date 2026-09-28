@@ -33,7 +33,7 @@ export const LoginPage: React.FC = () => {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.detail || 'Authentication failed. Please verify credentials.');
+        throw new Error(data.detail || data.message || 'Authentication failed. Please verify credentials.');
       }
 
       login(data.access_token, data.user);

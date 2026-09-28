@@ -3,10 +3,11 @@ SecureMailScope X - Authentication REST Endpoints (Phase 29)
 Provides User Registration, Login, JWT Token Issuance, and Profile Verification.
 """
 
-from typing import Optional
+from typing import Optional, Union, Any
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.core.auth import (
     hash_password,
@@ -40,6 +41,15 @@ class UserResponse(BaseModel):
     name: str
     email: str
     created_at: str
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def serialize_created_at(cls, v: Any) -> str:
+        if v is None:
+            return ""
+        if hasattr(v, "isoformat"):
+            return v.isoformat()
+        return str(v)
 
 
 class AuthTokenResponse(BaseModel):

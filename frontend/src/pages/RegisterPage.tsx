@@ -47,7 +47,7 @@ export const RegisterPage: React.FC = () => {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.detail || 'Registration failed. Please check inputs.');
+        throw new Error(data.detail || data.message || 'Registration failed. Please check inputs.');
       }
 
       login(data.access_token, data.user);

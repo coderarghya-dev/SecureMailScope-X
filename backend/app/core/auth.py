@@ -107,6 +107,14 @@ class UserRepository:
     """Provides thread-safe, engine-agnostic User CRUD queries."""
 
     @staticmethod
+    def _extract_created_at(raw: Any) -> str:
+        if raw is None:
+            return ""
+        if hasattr(raw, "isoformat"):
+            return raw.isoformat()
+        return str(raw)
+
+    @staticmethod
     def create_user(name: str, email: str, password_hash: str, db_path: Optional[str] = None) -> Dict[str, Any]:
         """Creates a new user record in the database."""
         clean_email = email.strip().lower()
@@ -115,16 +123,18 @@ class UserRepository:
         now_iso = datetime.now(timezone.utc).isoformat()
 
         conn = get_db_connection(db_path)
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            INSERT INTO users (id, name, email, password_hash, created_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (user_id, clean_name, clean_email, password_hash, now_iso)
-        )
-        conn.commit()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO users (id, name, email, password_hash, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (user_id, clean_name, clean_email, password_hash, now_iso)
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
         return {
             "id": user_id,
@@ -141,23 +151,27 @@ class UserRepository:
         clean_email = email.strip().lower()
 
         conn = get_db_connection(db_path)
-        cursor = conn.cursor()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, name, email, password_hash, created_at FROM users WHERE email = ? LIMIT 1",
+                (clean_email,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
 
-        cursor.execute(
-            "SELECT id, name, email, password_hash, created_at FROM users WHERE email = ? LIMIT 1",
-            (clean_email,)
-        )
-        row = cursor.fetchone()
-        if not row:
-            return None
+            created_raw = row["created_at"] if isinstance(row, dict) or hasattr(row, "__getitem__") else row[4]
 
-        return {
-            "id": row["id"] if isinstance(row, dict) or hasattr(row, "__getitem__") else row[0],
-            "name": row["name"] if isinstance(row, dict) or hasattr(row, "__getitem__") else row[1],
-            "email": row["email"] if isinstance(row, dict) or hasattr(row, "__getitem__") else row[2],
-            "password_hash": row["password_hash"] if isinstance(row, dict) or hasattr(row, "__getitem__") else row[3],
-            "created_at": row["created_at"] if isinstance(row, dict) or hasattr(row, "__getitem__") else row[4],
-        }
+            return {
+                "id": str(row["id"] if isinstance(row, dict) or hasattr(row, "__getitem__") else row[0]),
+                "name": str(row["name"] if isinstance(row, dict) or hasattr(row, "__getitem__") else row[1]),
+                "email": str(row["email"] if isinstance(row, dict) or hasattr(row, "__getitem__") else row[2]),
+                "password_hash": str(row["password_hash"] if isinstance(row, dict) or hasattr(row, "__getitem__") else row[3]),
+                "created_at": UserRepository._extract_created_at(created_raw),
+            }
+        finally:
+            conn.close()
 
     @staticmethod
     def get_user_by_id(user_id: str, db_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -166,20 +180,24 @@ class UserRepository:
             return None
 
         conn = get_db_connection(db_path)
-        cursor = conn.cursor()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, name, email, password_hash, created_at FROM users WHERE id = ? LIMIT 1",
+                (user_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
 
-        cursor.execute(
-            "SELECT id, name, email, password_hash, created_at FROM users WHERE id = ? LIMIT 1",
-            (user_id,)
-        )
-        row = cursor.fetchone()
-        if not row:
-            return None
+            created_raw = row["created_at"] if isinstance(row, dict) or hasattr(row, "__getitem__") else row[4]
 
-        return {
-            "id": row["id"] if isinstance(row, dict) or hasattr(row, "__getitem__") else row[0],
-            "name": row["name"] if isinstance(row, dict) or hasattr(row, "__getitem__") else row[1],
-            "email": row["email"] if isinstance(row, dict) or hasattr(row, "__getitem__") else row[2],
-            "password_hash": row["password_hash"] if isinstance(row, dict) or hasattr(row, "__getitem__") else row[3],
-            "created_at": row["created_at"] if isinstance(row, dict) or hasattr(row, "__getitem__") else row[4],
-        }
+            return {
+                "id": str(row["id"] if isinstance(row, dict) or hasattr(row, "__getitem__") else row[0]),
+                "name": str(row["name"] if isinstance(row, dict) or hasattr(row, "__getitem__") else row[1]),
+                "email": str(row["email"] if isinstance(row, dict) or hasattr(row, "__getitem__") else row[2]),
+                "password_hash": str(row["password_hash"] if isinstance(row, dict) or hasattr(row, "__getitem__") else row[3]),
+                "created_at": UserRepository._extract_created_at(created_raw),
+            }
+        finally:
+            conn.close()

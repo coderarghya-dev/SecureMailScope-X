@@ -168,6 +168,21 @@ class TestAuthService(unittest.TestCase):
         self.assertEqual(res.status_code, 401)
         self.assertIn("missing", res.json()["detail"].lower())
 
+    def test_10_datetime_created_at_compatibility(self):
+        """Verify UserRepository and UserResponse handle datetime objects from PostgreSQL driver gracefully."""
+        from datetime import datetime, timezone
+        from app.api.v1.endpoints.auth import UserResponse
+
+        dt_now = datetime.now(timezone.utc)
+        user_resp = UserResponse(
+            id="user_test_dt",
+            name="DateTime Analyst",
+            email="dt@securemailscope.io",
+            created_at=dt_now
+        )
+        self.assertIsInstance(user_resp.created_at, str)
+        self.assertEqual(user_resp.created_at, dt_now.isoformat())
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
