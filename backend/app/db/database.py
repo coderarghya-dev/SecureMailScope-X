@@ -366,6 +366,16 @@ def _init_sqlite_schema(conn: sqlite3.Connection):
 
     # Table definitions
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS analysts (
             analyst_id TEXT PRIMARY KEY,
             display_name TEXT NOT NULL,
@@ -1129,6 +1139,7 @@ def _init_sqlite_schema(conn: sqlite3.Connection):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_pqc_roadmaps_status ON pqc_migration_roadmaps(status);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_pqc_steps_roadmap ON pqc_migration_steps(roadmap_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_pqc_gap_findings_roadmap ON pqc_gap_findings(roadmap_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);")
 
     conn.commit()
 
@@ -1138,6 +1149,15 @@ def _init_postgres_schema(conn: PostgresConnectionWrapper):
     cursor = conn.cursor()
 
     pg_tables = [
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id VARCHAR(128) PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            email VARCHAR(255) UNIQUE NOT NULL,
+            password_hash VARCHAR(255) NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL
+        );
+        """,
         """
         CREATE TABLE IF NOT EXISTS analysts (
             analyst_id TEXT PRIMARY KEY,
@@ -1835,7 +1855,8 @@ def _init_postgres_schema(conn: PostgresConnectionWrapper):
         "CREATE INDEX IF NOT EXISTS idx_pqc_crypto_assets_exposure ON pqc_crypto_assets(hndl_exposure);",
         "CREATE INDEX IF NOT EXISTS idx_pqc_roadmaps_status ON pqc_migration_roadmaps(status);",
         "CREATE INDEX IF NOT EXISTS idx_pqc_steps_roadmap ON pqc_migration_steps(roadmap_id);",
-        "CREATE INDEX IF NOT EXISTS idx_pqc_gap_findings_roadmap ON pqc_gap_findings(roadmap_id);"
+        "CREATE INDEX IF NOT EXISTS idx_pqc_gap_findings_roadmap ON pqc_gap_findings(roadmap_id);",
+        "CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);"
     ]
 
     for idx_sql in pg_indexes:

@@ -1,8 +1,9 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { UploadCloud, ShieldCheck, FileCheck2 } from 'lucide-react';
+import { UploadCloud, ShieldCheck, FileCheck2, User as UserIcon, LogOut } from 'lucide-react';
 import { useHealthStore } from '../../store/useHealthStore';
 import { useAnalysisStore } from '../../store/useAnalysisStore';
+import { useAuthStore } from '../../store/useAuthStore';
 import { StatusIndicator } from '../common/StatusIndicator';
 
 const ROUTE_TITLES: Record<string, { title: string; category: string }> = {
@@ -23,6 +24,7 @@ export const Header: React.FC = () => {
   const navigate = useNavigate();
   const { isOnline, health } = useHealthStore();
   const { currentAnalysis } = useAnalysisStore();
+  const { user, logout } = useAuthStore();
 
   const currentRoute = ROUTE_TITLES[location.pathname] || {
     title: 'Security Posture & Ingestion Cockpit',
@@ -72,6 +74,44 @@ export const Header: React.FC = () => {
             <UploadCloud size={12} />
             <span>Ingest PCAP</span>
           </button>
+        )}
+
+        {user && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '3px 8px',
+                borderRadius: 'var(--radius-sm, 4px)',
+                backgroundColor: 'var(--surface-primary)',
+                border: '1px solid var(--border-subtle)',
+                fontSize: '10.5px',
+                fontFamily: 'JetBrains Mono, monospace',
+                color: 'var(--text-secondary)',
+              }}
+              title={`Authenticated as ${user.name} (${user.email})`}
+            >
+              <UserIcon size={11} color="var(--accent-cyan, #06b6d4)" />
+              <span style={{ maxWidth: '110px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {user.name || user.email}
+              </span>
+            </div>
+
+            <button
+              onClick={() => {
+                logout();
+                navigate('/login');
+              }}
+              className="btn-secondary"
+              style={{ padding: '3px 7px', fontSize: '10px' }}
+              title="Sign Out of Session"
+            >
+              <LogOut size={11} />
+              <span>Logout</span>
+            </button>
+          </div>
         )}
       </div>
     </header>

@@ -5,6 +5,7 @@ SecureMailScope X - API Version 1 Router Aggregator
 from fastapi import APIRouter
 from app.api.v1.endpoints import (
     health,
+    auth,
     analyze,
     sessions,
     rules,
@@ -23,6 +24,7 @@ api_v1_router = APIRouter(prefix="/api/v1")
 
 # Mount sub-routers
 api_v1_router.include_router(health.router, tags=["Health & System Diagnostics"])
+api_v1_router.include_router(auth.router, tags=["Authentication & Access Control"])
 api_v1_router.include_router(analyze.router, tags=["Forensic PCAP Analysis"])
 api_v1_router.include_router(sessions.router, tags=["Session Forensics & Drill-Down"])
 api_v1_router.include_router(rules.router, tags=["Cryptographic Rules & PQC Catalog"])

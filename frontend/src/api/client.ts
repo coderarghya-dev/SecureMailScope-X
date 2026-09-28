@@ -11,6 +11,15 @@ export function getApiUrl(path: string): string {
   return `${API_BASE}${cleanPath}`;
 }
 
+export function getAuthHeaders(extraHeaders: Record<string, string> = {}): Record<string, string> {
+  const token = localStorage.getItem('sms_auth_token');
+  const headers: Record<string, string> = { ...extraHeaders };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 export async function fetchHealth(): Promise<SystemHealth> {
   const res = await fetch(`${API_BASE}/health`);
   if (!res.ok) {

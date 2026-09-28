@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AppShell from './components/layout/AppShell';
 import DashboardPage from './pages/DashboardPage';
@@ -14,12 +14,34 @@ import ReportsPage from './pages/ReportsPage';
 import SettingsPage from './pages/SettingsPage';
 import PostureMonitoringPage from './pages/PostureMonitoringPage';
 import RemediationPage from './pages/RemediationPage';
+import LoginPage from './pages/LoginPage';
+import RegisterPage from './pages/RegisterPage';
+import ProtectedRoute from './components/auth/ProtectedRoute';
+import { useAuthStore } from './store/useAuthStore';
 
 export const App: React.FC = () => {
+  const { checkAuth } = useAuthStore();
+
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
+
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<AppShell />}>
+        {/* Public Authentication Routes */}
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+
+        {/* Protected Application Routes */}
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <AppShell />
+            </ProtectedRoute>
+          }
+        >
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="analyze" element={<AnalyzePage />} />

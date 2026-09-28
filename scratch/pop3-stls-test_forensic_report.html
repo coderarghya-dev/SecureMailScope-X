@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SecureMailScope X Forensic Report - pop3-stls-test.pcapng</title>
+    <style>
+        :root {
+            --bg: #090d16;
+            --surface: #111827;
+            --surface-elevated: #1a2234;
+            --border: #2e3a4e;
+            --border-subtle: #1e293b;
+            --text: #f3f4f6;
+            --text-muted: #94a3b8;
+            --text-dim: #64748b;
+            --cyan: #06b6d4;
+            --accent: #38bdf8;
+            --green: #10b981;
+            --red: #ef4444;
+            --amber: #f59e0b;
+            --blue: #3b82f6;
+            --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: var(--font-sans);
+            font-size: 13px;
+            line-height: 1.45;
+            padding: 24px;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px 24px;
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        .header-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border-subtle);
+            padding-bottom: 14px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .brand-title {
+            font-size: 18px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .brand-subtitle {
+            font-size: 11px;
+            color: var(--cyan);
+            font-family: var(--font-mono);
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .confidential-tag {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            font-weight: 700;
+            color: #ef4444;
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            padding: 4px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+        }
+
+        .meta-card {
+            background: var(--surface-elevated);
+            border: 1px solid var(--border-subtle);
+            padding: 8px 12px;
+            border-radius: 6px;
+        }
+
+        .meta-label {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            display: block;
+            margin-bottom: 2px;
+        }
+
+        .meta-value {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text);
+            word-break: break-all;
+        }
+
+        .section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 18px 20px;
+            margin-bottom: 20px;
+        }
+
+        .section-title {
+            font-size: 13px;
+            font-family: var(--font-mono);
+            font-weight: 700;
+            color: var(--cyan);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 1px solid var(--border-subtle);
+            padding-bottom: 8px;
+        }
+
+        .exec-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .metric-card {
+            background: var(--surface-elevated);
+            border: 1px solid var(--border-subtle);
+            padding: 12px 14px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .metric-title {
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .metric-value {
+            font-size: 22px;
+            font-weight: 800;
+            font-family: var(--font-mono);
+        }
+
+        .severity-pills {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .pill {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            margin-top: 8px;
+        }
+
+        th {
+            background: var(--surface-elevated);
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 10.5px;
+            font-weight: 600;
+            text-transform: uppercase;
+            text-align: left;
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        td {
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border-subtle);
+            color: var(--text);
+            vertical-align: middle;
+        }
+
+        tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10.5px;
+            font-family: var(--font-mono);
+            font-weight: 600;
+        }
+
+        .finding-card {
+            background: var(--surface-elevated);
+            border: 1px solid var(--border-subtle);
+            border-radius: 6px;
+            padding: 12px 14px;
+            margin-bottom: 10px;
+        }
+
+        .finding-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+
+        .finding-meta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 8px;
+            margin-top: 8px;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 8px 10px;
+            border-radius: 4px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .footer {
+            text-align: center;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-top: 24px;
+            padding-top: 12px;
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        .table-responsive {
+            overflow-x: auto;
+        }
+
+        @media print {
+            body {
+                background: #ffffff !important;
+                color: #000000 !important;
+                padding: 0 !important;
+            }
+            .header, .section, .finding-card, .meta-card, .metric-card {
+                background: #ffffff !important;
+                border-color: #cbd5e1 !important;
+                color: #000000 !important;
+                box-shadow: none !important;
+                page-break-inside: avoid;
+            }
+            .section-title {
+                color: #0284c7 !important;
+                border-bottom-color: #cbd5e1 !important;
+            }
+            th {
+                background: #f1f5f9 !important;
+                color: #334155 !important;
+                border-bottom-color: #cbd5e1 !important;
+            }
+            td {
+                color: #0f172a !important;
+                border-bottom-color: #e2e8f0 !important;
+            }
+            .meta-label, .metric-title {
+                color: #475569 !important;
+            }
+            .meta-value, .metric-value {
+                color: #000000 !important;
+            }
+            .finding-meta-grid {
+                background: #f8fafc !important;
+                border-color: #cbd5e1 !important;
+            }
+            .meta-value {
+                color: #0f172a !important;
+            }
+            .brand-title, .brand-subtitle {
+                color: #0f172a !important;
+            }
+            .badge {
+                border: 1px solid #94a3b8 !important;
+            }
+            .footer {
+                color: #64748b !important;
+                border-top-color: #cbd5e1 !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-top">
+                <div>
+                    <div class="brand-title">
+                        <span>SECUREMAILSCOPE X</span>
+                        <span style="font-weight: 300; color: var(--text-muted);">|</span>
+                        <span style="font-size: 14px; font-weight: 500; color: var(--text-muted);">OFFICIAL FORENSIC AUDIT REPORT</span>
+                    </div>
+                    <div class="brand-subtitle">Passive Cryptographic Dissection & Evidence-Bounded Inspection Engine</div>
+                </div>
+                <div class="confidential-tag">CONFIDENTIAL // FORENSIC EVIDENCE</div>
+            </div>
+
+            <div class="meta-grid">
+                <div class="meta-card">
+                    <span class="meta-label">CAPTURE FILENAME</span>
+                    <span class="meta-value" style="font-family: var(--font-mono); font-weight: 600;">pop3-stls-test.pcapng</span>
+                </div>
+                <div class="meta-card">
+                    <span class="meta-label">ANALYSIS ID</span>
+                    <span class="meta-value" style="font-family: var(--font-mono); color: var(--cyan);">analysis_f6c7ba0a23bc833a</span>
+                </div>
+                <div class="meta-card">
+                    <span class="meta-label">ANALYSIS TIMESTAMP (UTC)</span>
+                    <span class="meta-value" style="font-family: var(--font-mono);">2026-09-27T14:35:08.160827+00:00</span>
+                </div>
+                <div class="meta-card">
+                    <span class="meta-label">FILE SIZE & FRAMES</span>
+                    <span class="meta-value">1192 bytes | 8 packets</span>
+                </div>
+                <div class="meta-card">
+                    <span class="meta-label">PROTOCOLS DETECTED</span>
+                    <span class="meta-value" style="font-weight: 600; color: var(--cyan);">POP3</span>
+                </div>
+                <div class="meta-card">
+                    <span class="meta-label">TSHARK ENGINE</span>
+                    <span class="meta-value" style="font-size: 11px;">TShark (Wireshark) 4.6.8 (v4.6.8-0-ge677bf052328).</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- 1. Executive Summary -->
+        <section class="section">
+            <div class="section-title">1. EXECUTIVE SECURITY & EVIDENCE SUMMARY</div>
+            <div class="exec-summary-grid">
+                <div class="metric-card" style="border-top: 3px solid #ef4444;">
+                    <div class="metric-title">SECURITY GRADE</div>
+                    <div class="metric-value" style="color: #ef4444;">F <span style="font-size: 14px; font-weight: 500; color: var(--text-muted);">(35/100)</span></div>
+                </div>
+                <div class="metric-card" style="border-top: 3px solid var(--green);">
+                    <div class="metric-title">CAPTURE HEALTH</div>
+                    <div class="metric-value" style="color: var(--green);">60<span style="font-size: 12px; color: var(--text-muted);">/100</span> <span style="font-size: 11px; font-weight: 600; color: var(--green);">(FAIR)</span></div>
+                </div>
+                <div class="metric-card" style="border-top: 3px solid var(--cyan);">
+                    <div class="metric-title">EVIDENCE CONFIDENCE</div>
+                    <div class="metric-value" style="color: var(--cyan);">100<span style="font-size: 12px; color: var(--text-muted);">/100</span> <span style="font-size: 11px; font-weight: 600; color: var(--cyan);">(HIGH)</span></div>
+                </div>
+                <div class="metric-card" style="border-top: 3px solid var(--blue);">
+                    <div class="metric-title">TRANSPORT POSTURE</div>
+                    <div class="metric-value" style="font-size: 13px; font-weight: 600; color: var(--text); padding-top: 6px;">Unencrypted Plaintext Traffic</div>
+                </div>
+            </div>
+
+            <div style="font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px;">FINDINGS SEVERITY INVENTORY:</div>
+            <div class="severity-pills">
+                <div class="pill" style="background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid #ef4444;">CRITICAL: <strong>2</strong></div>
+                <div class="pill" style="background: rgba(249,115,22,0.15); color: #f97316; border: 1px solid #f97316;">HIGH: <strong>0</strong></div>
+                <div class="pill" style="background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid #f59e0b;">MEDIUM: <strong>0</strong></div>
+                <div class="pill" style="background: rgba(59,130,246,0.15); color: #3b82f6; border: 1px solid #3b82f6;">LOW: <strong>0</strong></div>
+                <div class="pill" style="background: rgba(6,182,212,0.15); color: #06b6d4; border: 1px solid #06b6d4;">INFORMATIONAL: <strong>0</strong></div>
+            </div>
+        </section>
+
+        <!-- 2. Reconstructed Session Inventory -->
+        <section class="section">
+            <div class="section-title">2. RECONSTRUCTED EMAIL SESSION INVENTORY (2 Sessions)</div>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Session ID</th>
+                            <th>Protocol</th>
+                            <th>Client Endpoint</th>
+                            <th>Server Endpoint / Hostname</th>
+                            <th>Transport Mode</th>
+                            <th>STARTTLS / STLS</th>
+                            <th>TLS Version</th>
+                            <th>Cipher Suite</th>
+                            <th>PFS Evidence</th>
+                            <th>Certificate Visibility</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        
+            <tr>
+                <td style="font-family: var(--font-mono); font-size: 11px;">stream_0_192.168.1.49_60400_192.178.158.108_110</td>
+                <td><span class="badge" style="background: rgba(6,182,212,0.15); color: #06b6d4; border: 1px solid #06b6d4;">POP3</span></td>
+                <td style="font-family: var(--font-mono); font-size: 11.5px;">192.168.1.49:60400</td>
+                <td style="font-family: var(--font-mono); font-size: 11.5px;">192.178.158.108:110<br/><span style="color: var(--text-dim); font-size: 10.5px;"></span></td>
+                <td><span class="badge" style="background: rgba(100,116,139,0.2); color: #94a3b8;">PLAINTEXT</span></td>
+                <td style="font-family: var(--font-mono); font-size: 11px;">NONE</td>
+                <td><span class="badge" style="background: rgba(255,255,255,0.05); color: #ef4444; border: 1px solid #ef4444;">None</span></td>
+                <td style="font-family: var(--font-mono); font-size: 10.5px;">None</td>
+                <td style="font-size: 11px;">N/A (Plaintext Session)</td>
+                <td style="font-size: 11px;">N/A</td>
+            </tr>
+            
+
+            <tr>
+                <td style="font-family: var(--font-mono); font-size: 11px;">stream_1_192.168.1.49_60401_192.178.158.109_110</td>
+                <td><span class="badge" style="background: rgba(6,182,212,0.15); color: #06b6d4; border: 1px solid #06b6d4;">POP3</span></td>
+                <td style="font-family: var(--font-mono); font-size: 11.5px;">192.168.1.49:60401</td>
+                <td style="font-family: var(--font-mono); font-size: 11.5px;">192.178.158.109:110<br/><span style="color: var(--text-dim); font-size: 10.5px;"></span></td>
+                <td><span class="badge" style="background: rgba(100,116,139,0.2); color: #94a3b8;">PLAINTEXT</span></td>
+                <td style="font-family: var(--font-mono); font-size: 11px;">NONE</td>
+                <td><span class="badge" style="background: rgba(255,255,255,0.05); color: #ef4444; border: 1px solid #ef4444;">None</span></td>
+                <td style="font-family: var(--font-mono); font-size: 10.5px;">None</td>
+                <td style="font-size: 11px;">N/A (Plaintext Session)</td>
+                <td style="font-size: 11px;">N/A</td>
+            </tr>
+            
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- 3. Security Findings & Remediation -->
+        <section class="section">
+            <div class="section-title">3. CRYPTOGRAPHIC FINDINGS & PROTOCOL REMEDIATION (2 Findings)</div>
+            
+            <div class="finding-card" style="border-left: 4px solid #ef4444;">
+                <div class="finding-header">
+                    <span class="badge" style="background: #ef4444; color: #ffffff; font-weight: 700;">CRITICAL</span>
+                    <span style="font-family: var(--font-mono); font-weight: 600; font-size: 12px; color: var(--text-muted);">FINDING-PLAINTEXT-COMMUNICATION</span>
+                    <span style="font-weight: 600; font-size: 13px; color: var(--text);">Unencrypted Cleartext Email Session</span>
+                    <span style="margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--cyan);">Frames: 1, 2, 3, 4</span>
+                </div>
+                <div class="finding-body">
+                    <p style="margin: 0 0 6px 0; color: var(--text-muted); font-size: 12px; line-height: 1.5;">Email session on POP3 (192.178.158.108:110) was conducted entirely in plaintext without cryptographic encryption. Authentication credentials, headers, and email payloads are exposed to passive eavesdropping and MITM tampering.</p>
+                    <div class="finding-meta-grid">
+                        <div class="finding-meta-item">
+                            <span class="meta-label">REMEDIATION:</span>
+                            <span class="meta-value" style="color: #38bdf8;">Enforce mandatory TLS encryption via STLS (POP3 port 110) or Direct TLS / POP3S (port 995). Disable unencrypted plaintext authentication mechanisms.</span>
+                        </div>
+                        <div class="finding-meta-item">
+                            <span class="meta-label">STANDARDS REFERENCE:</span>
+                            <span class="meta-value" style="font-family: var(--font-mono); color: #a78bfa;">RFC 3207, RFC 8314</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+
+            <div class="finding-card" style="border-left: 4px solid #ef4444;">
+                <div class="finding-header">
+                    <span class="badge" style="background: #ef4444; color: #ffffff; font-weight: 700;">CRITICAL</span>
+                    <span style="font-family: var(--font-mono); font-weight: 600; font-size: 12px; color: var(--text-muted);">FINDING-PLAINTEXT-COMMUNICATION</span>
+                    <span style="font-weight: 600; font-size: 13px; color: var(--text);">Unencrypted Cleartext Email Session</span>
+                    <span style="margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--cyan);">Frames: 5, 6, 7, 8</span>
+                </div>
+                <div class="finding-body">
+                    <p style="margin: 0 0 6px 0; color: var(--text-muted); font-size: 12px; line-height: 1.5;">Email session on POP3 (192.178.158.109:110) was conducted entirely in plaintext without cryptographic encryption. Authentication credentials, headers, and email payloads are exposed to passive eavesdropping and MITM tampering.</p>
+                    <div class="finding-meta-grid">
+                        <div class="finding-meta-item">
+                            <span class="meta-label">REMEDIATION:</span>
+                            <span class="meta-value" style="color: #38bdf8;">Enforce mandatory TLS encryption via STLS (POP3 port 110) or Direct TLS / POP3S (port 995). Disable unencrypted plaintext authentication mechanisms.</span>
+                        </div>
+                        <div class="finding-meta-item">
+                            <span class="meta-label">STANDARDS REFERENCE:</span>
+                            <span class="meta-value" style="font-family: var(--font-mono); color: #a78bfa;">RFC 3207, RFC 8314</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+        </section>
+
+        <!-- 4. Evidence Mapping Table -->
+        <section class="section">
+            <div class="section-title">4. FORENSIC FRAME EVIDENCE MAPPING</div>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Session ID</th>
+                            <th>Protocol</th>
+                            <th>Advertised Frame</th>
+                            <th>Requested Frame</th>
+                            <th>Accepted Frame</th>
+                            <th>ClientHello Frame</th>
+                            <th>ServerHello Frame</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        
+            <tr>
+                <td style="font-family: var(--font-mono); font-size: 11px;">stream_0_192.168.1.49_60400_192.178.158.108_110</td>
+                <td><span class="badge" style="background: rgba(6,182,212,0.15); color: #06b6d4;">POP3</span></td>
+                <td style="font-family: var(--font-mono);">-</td>
+                <td style="font-family: var(--font-mono);">-</td>
+                <td style="font-family: var(--font-mono);">-</td>
+                <td style="font-family: var(--font-mono);">-</td>
+                <td style="font-family: var(--font-mono);">-</td>
+            </tr>
+            
+
+            <tr>
+                <td style="font-family: var(--font-mono); font-size: 11px;">stream_1_192.168.1.49_60401_192.178.158.109_110</td>
+                <td><span class="badge" style="background: rgba(6,182,212,0.15); color: #06b6d4;">POP3</span></td>
+                <td style="font-family: var(--font-mono);">-</td>
+                <td style="font-family: var(--font-mono);">-</td>
+                <td style="font-family: var(--font-mono);">-</td>
+                <td style="font-family: var(--font-mono);">-</td>
+                <td style="font-family: var(--font-mono);">-</td>
+            </tr>
+            
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- 5. Cryptographic Posture Analysis -->
+        <section class="section">
+            <div class="section-title">5. TECHNICAL CRYPTOGRAPHIC POSTURE</div>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Observed TLS Versions</th>
+                            <th>Negotiated Cipher Suites</th>
+                            <th>Transport Coverage</th>
+                            <th>Certificate Visibility</th>
+                            <th>Forward Secrecy (PFS)</th>
+                            <th>Legacy Crypto Exposure</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="font-family: var(--font-mono); font-weight: 600;">None (Plaintext)</td>
+                            <td style="font-family: var(--font-mono); font-size: 11px;">None</td>
+                            <td><span class="badge" style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid #10b981;">0% (Unencrypted Plaintext)</span></td>
+                            <td>N/A (No TLS)</td>
+                            <td>N/A (Plaintext Session)</td>
+                            <td>N/A (Unencrypted Traffic)</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- 6. Post-Quantum Cryptography & HNDL Risk Assessment -->
+        <section class="section">
+            <div class="section-title">6. POST-QUANTUM CRYPTOGRAPHY & HNDL RISK ASSESSMENT</div>
+            <div style="background: var(--surface-elevated); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 14px 16px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+                    <div>
+                        <span style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); text-transform: uppercase;">PQC TRANSITION STATUS:</span>
+                        <span class="badge" style="margin-left: 6px; background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid #f59e0b; font-size: 11px;">Not Applicable</span>
+                    </div>
+                    <div style="font-family: var(--font-mono); font-size: 11px; color: var(--cyan);">
+                        TARGET STANDARD: <strong>N/A (Requires Transport Encryption First)</strong>
+                    </div>
+                </div>
+                <div style="margin-bottom: 8px; font-size: 12.5px; color: var(--text-muted); line-height: 1.5;">
+                    Plaintext session / no cryptographic transport negotiated. Harvest Now, Decrypt Later (HNDL) is not applicable because traffic was transmitted in unencrypted cleartext without classical key exchange.
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; margin-top: 10px; font-size: 11.5px;">
+                    <div><span class="meta-label">KEY EXCHANGE OBSERVED:</span> <span style="font-family: var(--font-mono); color: var(--text);">None (Plaintext Session)</span></div>
+                    <div><span class="meta-label">STANDARDS REFERENCES:</span> <span style="font-family: var(--font-mono); color: #a78bfa;">RFC 8314</span></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 7. Forensic Limitations & Custody Seal -->
+        <section class="section">
+            <div class="section-title">7. PASSIVE OBSERVABILITY LIMITATIONS & EVIDENCE INTEGRITY</div>
+            <ul style="padding-left: 20px; color: var(--text-muted); font-size: 12px; line-height: 1.6; margin-bottom: 16px;">
+                <li style='margin-bottom: 4px;'>TLS 1.3 encrypted handshake extensions and certificates are cryptographically unobservable by passive capture per RFC 8446 specification.</li>
+<li style='margin-bottom: 4px;'>Specific ephemeral key_share group parameters were not directly exposed in unencrypted packet headers.</li>
+<li style='margin-bottom: 4px;'>POP3 port 110 STLS real capture status remains pending/unavailable on live endpoints.</li>
+<li style='margin-bottom: 4px;'>Local cryptographic custody is implemented using SHA-256 capture sealing, canonical manifest sealing, and a hash-chained audit log. External blockchain/distributed-ledger notarization is not implemented.</li>
+            </ul>
+
+            <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 12px 14px;">
+                <div style="font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--cyan); text-transform: uppercase; margin-bottom: 8px;">CRYPTOGRAPHIC CHAIN OF CUSTODY VERIFICATION</div>
+                <div class="meta-grid">
+                    <div>
+                        <span class="meta-label">CAPTURE SHA-256 SEAL</span>
+                        <span style="font-family: var(--font-mono); font-size: 11px; color: var(--text);">f6c7ba0a23bc833a97aa8cd8850470ad64b9d23460c0d941ed83dc0586893cae</span>
+                    </div>
+                    <div>
+                        <span class="meta-label">CUSTODY VERIFICATION STATUS</span>
+                        <span class="badge" style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid #10b981;">VERIFIED</span>
+                    </div>
+                    <div>
+                        <span class="meta-label">ANALYSIS MANIFEST HASH</span>
+                        <span style="font-family: var(--font-mono); font-size: 11px; color: var(--text);">72c76d0f793fc05b1a37ebe6c6465d94ee52fc0d41c96e4e2338cb93463a4f43</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="footer">
+            SECUREMAILSCOPE X — EVIDENCE-BOUNDED FORENSIC REPORT // PRODUCED STRICTLY FROM PASSIVE PACKET DISSECTION // FULLY OFFLINE STANDALONE EXPORT
+        </footer>
+    </div>
+</body>
+</html>
