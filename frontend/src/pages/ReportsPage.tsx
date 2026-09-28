@@ -5,6 +5,8 @@ import {
   Printer,
   Download,
   UploadCloud,
+  FileCode2,
+  Globe,
 } from 'lucide-react';
 import { useAnalysisStore } from '../store/useAnalysisStore';
 import { getApiUrl } from '../api/client';
@@ -13,6 +15,8 @@ export const ReportsPage: React.FC = () => {
   const navigate = useNavigate();
   const { currentAnalysis } = useAnalysisStore();
   const [isExportingPdf, setIsExportingPdf] = React.useState(false);
+  const [isExportingJson, setIsExportingJson] = React.useState(false);
+  const [isExportingHtml, setIsExportingHtml] = React.useState(false);
 
   const streams = currentAnalysis?.streams || [];
 
@@ -97,6 +101,17 @@ export const ReportsPage: React.FC = () => {
     return null;
   };
 
+  const getFilenameFromResponse = (response: Response, fallback: string): string => {
+    const disposition = response.headers.get('Content-Disposition');
+    if (disposition && disposition.includes('filename=')) {
+      const filenameMatch = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+      if (filenameMatch && filenameMatch[1]) {
+        return filenameMatch[1].replace(/['"]/g, '').trim();
+      }
+    }
+    return fallback;
+  };
+
   const handleExportPdf = async () => {
     if (!currentAnalysis) return;
 
@@ -122,7 +137,8 @@ export const ReportsPage: React.FC = () => {
         ''
       );
 
-      a.download = `${cleanName}_forensic_report.pdf`;
+      const fallbackName = `${cleanName}_forensic_report.pdf`;
+      a.download = getFilenameFromResponse(response, fallbackName);
 
       document.body.appendChild(a);
       a.click();
@@ -138,6 +154,96 @@ export const ReportsPage: React.FC = () => {
       );
     } finally {
       setIsExportingPdf(false);
+    }
+  };
+
+  const handleExportJson = async () => {
+    if (!currentAnalysis) return;
+
+    setIsExportingJson(true);
+
+    try {
+      const response = await fetch(
+        getApiUrl(`/api/v1/analyze/${currentAnalysis.analysis_id}/export/json`)
+      );
+
+      if (!response.ok) {
+        throw new Error(`JSON export failed with status ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = url;
+
+      const cleanName = (currentAnalysis.filename || 'capture').replace(
+        /\.[^/.]+$/,
+        ''
+      );
+
+      const fallbackName = `${cleanName}_forensic_report.json`;
+      a.download = getFilenameFromResponse(response, fallbackName);
+
+      document.body.appendChild(a);
+      a.click();
+
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error('Failed to download JSON:', err);
+
+      window.open(
+        getApiUrl(`/api/v1/analyze/${currentAnalysis.analysis_id}/export/json`),
+        '_blank'
+      );
+    } finally {
+      setIsExportingJson(false);
+    }
+  };
+
+  const handleExportHtml = async () => {
+    if (!currentAnalysis) return;
+
+    setIsExportingHtml(true);
+
+    try {
+      const response = await fetch(
+        getApiUrl(`/api/v1/analyze/${currentAnalysis.analysis_id}/export/html`)
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTML export failed with status ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = url;
+
+      const cleanName = (currentAnalysis.filename || 'capture').replace(
+        /\.[^/.]+$/,
+        ''
+      );
+
+      const fallbackName = `${cleanName}_forensic_report.html`;
+      a.download = getFilenameFromResponse(response, fallbackName);
+
+      document.body.appendChild(a);
+      a.click();
+
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error('Failed to download HTML:', err);
+
+      window.open(
+        getApiUrl(`/api/v1/analyze/${currentAnalysis.analysis_id}/export/html`),
+        '_blank'
+      );
+    } finally {
+      setIsExportingHtml(false);
     }
   };
 
@@ -168,6 +274,7 @@ export const ReportsPage: React.FC = () => {
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
+              flexWrap: 'wrap',
             }}
           >
             <button
@@ -177,7 +284,11 @@ export const ReportsPage: React.FC = () => {
               style={{
                 opacity: currentAnalysis ? 1 : 0.45,
                 cursor: currentAnalysis ? 'pointer' : 'not-allowed',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
               }}
+              title={currentAnalysis ? 'Print Executive Summary' : 'Ingest a capture to print'}
             >
               <Printer size={12} />
               <span>Print Summary</span>
@@ -203,6 +314,52 @@ export const ReportsPage: React.FC = () => {
               <Download size={12} />
               <span>
                 {isExportingPdf ? 'Generating PDF...' : 'Export PDF'}
+              </span>
+            </button>
+
+            <button
+              onClick={handleExportJson}
+              disabled={!currentAnalysis || isExportingJson}
+              className="btn-secondary"
+              style={{
+                opacity: currentAnalysis ? 1 : 0.45,
+                cursor: currentAnalysis ? 'pointer' : 'not-allowed',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+              title={
+                currentAnalysis
+                  ? 'Download Structured JSON Forensic Audit Report'
+                  : 'Ingest a capture to export JSON'
+              }
+            >
+              <FileCode2 size={12} />
+              <span>
+                {isExportingJson ? 'Exporting JSON...' : 'Export JSON'}
+              </span>
+            </button>
+
+            <button
+              onClick={handleExportHtml}
+              disabled={!currentAnalysis || isExportingHtml}
+              className="btn-secondary"
+              style={{
+                opacity: currentAnalysis ? 1 : 0.45,
+                cursor: currentAnalysis ? 'pointer' : 'not-allowed',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+              title={
+                currentAnalysis
+                  ? 'Download Standalone Offline HTML Report'
+                  : 'Ingest a capture to export HTML'
+              }
+            >
+              <Globe size={12} />
+              <span>
+                {isExportingHtml ? 'Exporting HTML...' : 'Export HTML'}
               </span>
             </button>
           </div>
