@@ -1024,10 +1024,10 @@ class ReportService:
     <header class="header">
       <div>
         <h1>SECUREMAILSCOPE X — FORENSIC AUDIT REPORT</h1>
-        <p>Explainable AI-Assisted Email Cryptographic Forensics &bull; Offline Deterministic Evidence</p>
+        <p>Explainable AI-Assisted Email Cryptographic Forensics &bull; Deterministic Evidence Report</p>
       </div>
       <div style="text-align: right;">
-        <span class="badge badge-info">OFFLINE LOCAL REPORT</span>
+        <span class="badge badge-info">STANDALONE FORENSIC REPORT</span>
         <p style="font-size: 11px;">Generated UTC: {html.escape(meta.analysis_timestamp_utc)}</p>
       </div>
     </header>
