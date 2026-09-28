@@ -180,6 +180,11 @@ function normalizeAnalysis(detail: any): AnalysisSummary {
       certificate_visibility: tlsObj?.certificate_visibility,
       starttls: stObj,
       tls: tlsObj,
+      evidence_confidence: s.evidence_confidence,
+      certificate_details: s.certificate_details || tlsObj?.certificate_details,
+      anomaly_report: s.anomaly_report,
+      ai_risk_classification: s.ai_risk_classification,
+      raw_session: s,
     });
   });
 

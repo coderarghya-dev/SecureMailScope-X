@@ -43,6 +43,8 @@ from app.schemas.api import (
     EvidenceFrameDTO,
     PacketEvidenceDTO,
     MLTriageDTO,
+    TLSAnomalyDTO,
+    SessionAnomalyReportDTO,
     CorrelatedIncidentDTO,
     MultiSessionSummaryDTO,
     CertificateDetailsDTO,
@@ -52,9 +54,13 @@ from app.schemas.api import (
     MTASTSRecordDetailsDTO,
     BIMIRecordDetailsDTO,
     DANERecordDetailsDTO,
-    DomainAuthenticationAssessmentDTO
+    DomainAuthenticationAssessmentDTO,
+    AIRiskClassificationDTO,
+    AIRiskFactorDTO
 )
 from app.ml.risk_classifier import MLRiskClassifier
+from app.ai.risk_model import AIRiskModel
+from app.forensic.anomaly_detector import TLSAnomalyDetector
 
 
 class AnalysisService:
@@ -224,6 +230,7 @@ class AnalysisService:
 
             # TLS Details
             tls_dto = None
+            cert_dto = None
             if s.tls_details:
                 cipher_info_dto = None
                 if s.tls_details.cipher_info:
@@ -239,7 +246,6 @@ class AnalysisService:
                         is_post_quantum_safe=ci.is_post_quantum_safe
                     )
 
-                cert_dto = None
                 if s.tls_details.certificate_details:
                     cd = s.tls_details.certificate_details
                     cert_dto = CertificateDetailsDTO(
@@ -392,6 +398,49 @@ class AnalysisService:
             except Exception:
                 ml_triage_dto = None
 
+            # AI-Assisted Risk Classification (Advisory only - Phase 27)
+            ai_risk_dto = None
+            try:
+                ai_pred = AIRiskModel.predict_session(s)
+                if ai_pred:
+                    ai_risk_dto = AIRiskClassificationDTO(
+                        risk_class=ai_pred.risk_class,
+                        confidence=ai_pred.confidence,
+                        model_name=ai_pred.model_name,
+                        model_version=ai_pred.model_version,
+                        training_source=ai_pred.training_source,
+                        authoritative=ai_pred.authoritative,
+                        disclaimer=ai_pred.disclaimer,
+                        feature_vector=ai_pred.feature_vector,
+                        class_probabilities=ai_pred.class_probabilities,
+                        top_risk_factors=[
+                            AIRiskFactorDTO(
+                                feature=rf.feature,
+                                description=rf.description,
+                                observed_value=rf.observed_value,
+                                contribution=rf.contribution,
+                                direction=rf.direction,
+                                explanation=rf.explanation
+                            )
+                            for rf in ai_pred.top_risk_factors
+                        ],
+                        top_mitigating_factors=[
+                            AIRiskFactorDTO(
+                                feature=mf.feature,
+                                description=mf.description,
+                                observed_value=mf.observed_value,
+                                contribution=mf.contribution,
+                                direction=mf.direction,
+                                explanation=mf.explanation
+                            )
+                            for mf in ai_pred.top_mitigating_factors
+                        ],
+                        explanation=ai_pred.explanation,
+                        limitations=ai_pred.limitations
+                    )
+            except Exception:
+                ai_risk_dto = None
+
             # Domain Authentication Assessment (Phase 7)
             if not s.domain_auth:
                 from app.dns.dns_auth_analyzer import DNSAuthAnalyzer
@@ -494,6 +543,37 @@ class AnalysisService:
                     limitations=da.limitations
                 )
 
+            # Anomaly Detection Report (Phase 26)
+            anomaly_report_dto = None
+            try:
+                anom_res = TLSAnomalyDetector.detect_session_anomalies(s)
+                if anom_res:
+                    anomaly_report_dto = SessionAnomalyReportDTO(
+                        session_id=anom_res.session_id,
+                        total_anomalies=anom_res.total_anomalies,
+                        overall_anomaly_score=anom_res.overall_anomaly_score,
+                        highest_severity=anom_res.highest_severity,
+                        anomalies=[
+                            TLSAnomalyDTO(
+                                anomaly_id=a.anomaly_id,
+                                title=a.title,
+                                severity=a.severity,
+                                anomaly_score=a.anomaly_score,
+                                confidence=a.confidence,
+                                category=a.category,
+                                observed_evidence=a.observed_evidence,
+                                frame_anchors=a.frame_anchors,
+                                explanation=a.explanation,
+                                remediation=a.remediation
+                            )
+                            for a in anom_res.anomalies
+                        ],
+                        detection_method=anom_res.detection_method,
+                        disclaimer=anom_res.disclaimer
+                    )
+            except Exception:
+                anomaly_report_dto = None
+
             session_dtos.append(SessionDetailDTO(
                 session_id=s.session_id,
                 stream_index=s.stream_index,
@@ -514,12 +594,14 @@ class AnalysisService:
                 security_assessment=sec_dto,
                 evidence_frames=evidence_frames_dtos,
                 ml_triage=ml_triage_dto,
+                ai_risk_classification=ai_risk_dto,
+                anomaly_report=anomaly_report_dto,
                 certificate_details=cert_dto,
                 domain_auth=domain_auth_dto
             ))
 
-        primary_conf_score = session_dtos[0].evidence_confidence.score if session_dtos else 95
-        primary_conf_level = session_dtos[0].evidence_confidence.level if session_dtos else "HIGH"
+        primary_conf_score = session_dtos[0].evidence_confidence.score if session_dtos else 0
+        primary_conf_level = session_dtos[0].evidence_confidence.level if session_dtos else "UNAVAILABLE"
 
         # Evidence-Bounded Incident Correlation & Multi-Session Summary
         raw_incidents = IncidentCorrelator.correlate_sessions(sessions)

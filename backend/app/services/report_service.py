@@ -6,6 +6,8 @@ strictly derived from deterministic backend analysis.
 
 import os
 import io
+import json
+import html
 from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional
 
@@ -126,9 +128,26 @@ class ReportService:
 
         has_tls = any(s.tls and s.tls.negotiated_version for s in sessions)
         all_tls = all(s.tls and s.tls.negotiated_version for s in sessions) if sessions else False
-        overall_posture = "100% Encrypted Sessions (TLS 1.3 Observed)" if all_tls else (
-            "Mixed Encryption / Plaintext" if has_tls else "Unencrypted Plaintext Traffic"
+        tls_vers = sorted(list(set(s.tls.negotiated_version for s in sessions if s.tls and s.tls.negotiated_version)))
+        vers_str = ", ".join(tls_vers) if tls_vers else "TLS"
+        overall_posture = f"100% Encrypted Sessions ({vers_str} Observed)" if all_tls else (
+            f"Mixed Encryption / Plaintext ({vers_str} Observed)" if has_tls else "Unencrypted Plaintext Traffic"
         )
+
+        pqc_findings = [
+            f for s in sessions 
+            for f in (s.security_assessment.findings if s.security_assessment else []) 
+            if "PQC" in f.id or "HNDL" in f.id
+        ]
+        if not has_tls:
+            pqc_exec_state = "Not Applicable — Plaintext session / no cryptographic transport negotiated."
+        elif pqc_findings:
+            if "Assessment Incomplete" in pqc_findings[0].description or "incomplete" in pqc_findings[0].description.lower():
+                pqc_exec_state = "Assessment Incomplete — Exposure cannot be fully characterized from available passive key-exchange evidence."
+            else:
+                pqc_exec_state = pqc_findings[0].description
+        else:
+            pqc_exec_state = "Assessment Incomplete — Exposure cannot be fully characterized from available passive key-exchange evidence."
 
         exec_summary = ExecutiveSummaryDTO(
             security_grade=primary_grade,
@@ -143,15 +162,15 @@ class ReportService:
             low_findings_count=low_count,
             info_findings_count=info_count,
             overall_transport_posture=overall_posture,
-            pqc_hndl_assessment_state="Assessment Incomplete — Exposure cannot be fully characterized from available passive key-exchange evidence."
+            pqc_hndl_assessment_state=pqc_exec_state
         )
 
         # 3. Session Inventory
         session_items: List[SessionReportItemDTO] = []
         for s in sessions:
             tls_obj = s.tls
-            pfs_st = tls_obj.pfs_status if tls_obj else "N/A (No TLS)"
-            pqc_st = "Exposure cannot be fully characterized from available passive key-exchange evidence." if tls_obj else "Plaintext (No Protection)"
+            pfs_st = tls_obj.pfs_status if tls_obj else "N/A (Plaintext Session)"
+            pqc_st = "Exposure cannot be fully characterized from available passive key-exchange evidence." if tls_obj else "Not Applicable (Plaintext Session)"
 
             session_items.append(SessionReportItemDTO(
                 session_id=s.session_id,
@@ -165,19 +184,39 @@ class ReportService:
                 cipher_suite=tls_obj.cipher_name if tls_obj else "None",
                 certificate_visibility=tls_obj.certificate_visibility if tls_obj else "N/A",
                 pfs_evidence_state=pfs_st,
-                pqc_evidence_state=pqc_st
+                pqc_evidence_state=pqc_st,
+                ai_risk_class=s.ai_risk_classification.risk_class if s.ai_risk_classification else None
             ))
 
         # 4. Findings
         finding_items: List[FindingReportItemDTO] = []
         for s in sessions:
             for f in s.security_assessment.findings:
+                # Presentation-layer remediation normalization for protocol correctness
+                raw_remediation = f.recommendation or ""
+                norm_remediation = raw_remediation
+
+                if s.protocol == "POP3":
+                    if "STARTTLS" in raw_remediation or "110" in raw_remediation:
+                        norm_remediation = "Enforce mandatory TLS encryption via STLS (POP3 port 110) or Direct TLS / POP3S (port 995). Disable unencrypted plaintext authentication mechanisms."
+                elif s.protocol == "SMTP":
+                    if "STARTTLS (SMTP 587, POP3 110, IMAP 143)" in raw_remediation:
+                        norm_remediation = "Enforce mandatory TLS encryption via STARTTLS (SMTP port 587) or Direct TLS / SMTPS (port 465). Disable unencrypted plaintext transmission."
+                elif s.protocol == "IMAP":
+                    if "STARTTLS (SMTP 587, POP3 110, IMAP 143)" in raw_remediation:
+                        norm_remediation = "Enforce mandatory TLS encryption via STARTTLS (IMAP port 143) or Direct TLS / IMAPS (port 993). Disable unencrypted plaintext authentication."
+
                 # Standards reference derivation
-                std_ref = "RFC 8446" if "TLS13" in f.id else (
-                    "NIST FIPS 203" if "PQC" in f.id or "HNDL" in f.id else (
-                        "RFC 3207" if "STARTTLS" in f.id else "NIST SP 800-52r2"
+                if f.explanation and f.explanation.standards_refs:
+                    std_ref = ", ".join(f.explanation.standards_refs)
+                else:
+                    std_ref = "RFC 8446" if "TLS13" in f.id else (
+                        "NIST FIPS 203" if "PQC" in f.id or "HNDL" in f.id else (
+                            "RFC 2595" if "STLS" in f.id or (s.protocol == "POP3" and "PLAINTEXT" in f.id) else (
+                                "RFC 3207" if "STARTTLS" in f.id else "RFC 8314"
+                            )
+                        )
                     )
-                )
                 frames_display = f"Frames: {', '.join(map(str, f.evidence_frames))}" if f.evidence_frames else "Frame evidence unavailable"
 
                 finding_items.append(FindingReportItemDTO(
@@ -185,7 +224,7 @@ class ReportService:
                     finding_id=f.id,
                     title=f.title,
                     description=f.description,
-                    remediation=f.recommendation,
+                    remediation=norm_remediation,
                     standards_reference=std_ref,
                     session_id=s.session_id,
                     native_frame_anchors=f.evidence_frames,
@@ -210,25 +249,34 @@ class ReportService:
         # 6. Cryptographic Posture
         tls_versions = sorted(list(set(s.tls.negotiated_version for s in sessions if s.tls and s.tls.negotiated_version)))
         cipher_suites = sorted(list(set(s.tls.cipher_name for s in sessions if s.tls and s.tls.cipher_name)))
-        cert_vis = primary_session.tls.certificate_visibility if primary_session and primary_session.tls else "Encrypted / Unobservable"
+        cert_vis = primary_session.tls.certificate_visibility if primary_session and primary_session.tls else "N/A (No TLS)"
 
         crypto_posture = CryptographicPostureDTO(
             tls_versions=tls_versions if tls_versions else ["None (Plaintext)"],
             cipher_suites=cipher_suites if cipher_suites else ["None"],
-            transport_encryption_coverage="100% Encrypted" if all_tls else "Incomplete",
+            transport_encryption_coverage="100% Encrypted" if all_tls else ("Mixed Encryption / Plaintext" if has_tls else "0% (Unencrypted Plaintext)"),
             certificate_visibility=cert_vis,
-            forward_secrecy_evidence_state="Unknown / Insufficient passive evidence",
-            legacy_crypto_exposure="None / 0 weak ciphers identified"
+            forward_secrecy_evidence_state="Unknown / Insufficient passive evidence" if has_tls else "N/A (Plaintext Session)",
+            legacy_crypto_exposure="None / 0 weak ciphers identified" if has_tls else "N/A (Unencrypted Traffic)"
         )
 
         # 7. PQC / HNDL Assessment
-        pqc_assessment = PQCHNDLAssessmentDTO(
-            status="Assessment Incomplete",
-            observed_key_exchange="Unknown / Insufficient passive evidence",
-            hndl_exposure_summary="HNDL exposure cannot be fully characterized from available passive key-exchange evidence. Classical key exchange mechanisms are vulnerable to retroactive decryption by future quantum adversaries.",
-            recommended_kem_standard="NIST FIPS 203 (ML-KEM)",
-            standards_references=["NIST FIPS 203", "RFC 8446"]
-        )
+        if not has_tls:
+            pqc_assessment = PQCHNDLAssessmentDTO(
+                status="Not Applicable",
+                observed_key_exchange="None (Plaintext Session)",
+                hndl_exposure_summary="Plaintext session / no cryptographic transport negotiated. Harvest Now, Decrypt Later (HNDL) is not applicable because traffic was transmitted in unencrypted cleartext without classical key exchange.",
+                recommended_kem_standard="N/A (Requires Transport Encryption First)",
+                standards_references=["RFC 8314"]
+            )
+        else:
+            pqc_assessment = PQCHNDLAssessmentDTO(
+                status="Assessment Incomplete",
+                observed_key_exchange="Unknown / Insufficient passive evidence",
+                hndl_exposure_summary="HNDL exposure cannot be fully characterized from available passive key-exchange evidence. Classical key exchange mechanisms are vulnerable to retroactive decryption by future quantum adversaries.",
+                recommended_kem_standard="NIST FIPS 203 (ML-KEM)",
+                standards_references=["NIST FIPS 203", "RFC 8446"]
+            )
 
         # 8. Forensic Limitations
         limitations = [
@@ -246,6 +294,7 @@ class ReportService:
             evidence_mapping=evidence_items,
             cryptographic_posture=crypto_posture,
             pqc_hndl_assessment=pqc_assessment,
+            ai_risk_classification=primary_session.ai_risk_classification if primary_session else None,
             forensic_limitations=limitations
         )
 
@@ -473,11 +522,15 @@ class ReportService:
         # -------------------------------------------------------------------
         story.append(Paragraph("3. FORENSIC EVIDENCE & FRAME MAPPING", h2_style))
 
+        is_pop3_only = (meta.protocols_detected == ["POP3"]) or (len(report_data.session_inventory) > 0 and all(s.protocol == "POP3" for s in report_data.session_inventory))
+        is_smtp_or_imap = all(s.protocol in ["SMTP", "IMAP"] for s in report_data.session_inventory) if report_data.session_inventory else True
+        upgrade_term = "STLS" if is_pop3_only else ("STARTTLS" if is_smtp_or_imap else "STARTTLS / STLS")
+
         ev_headers = [
             Paragraph("<b>Session Protocol</b>", table_cell_bold),
-            Paragraph("<b>STARTTLS Advertised</b>", table_cell_bold),
-            Paragraph("<b>STARTTLS Request</b>", table_cell_bold),
-            Paragraph("<b>STARTTLS Accept</b>", table_cell_bold),
+            Paragraph(f"<b>{upgrade_term} Advertised</b>", table_cell_bold),
+            Paragraph(f"<b>{upgrade_term} Request</b>", table_cell_bold),
+            Paragraph(f"<b>{upgrade_term} Accept</b>", table_cell_bold),
             Paragraph("<b>Client Hello</b>", table_cell_bold),
             Paragraph("<b>Server Hello</b>", table_cell_bold)
         ]
@@ -585,9 +638,52 @@ class ReportService:
         story.append(Spacer(1, 8))
 
         # -------------------------------------------------------------------
+        # 6b. AI-Assisted Risk Classification (Advisory Only)
+        # -------------------------------------------------------------------
+        if report_data.ai_risk_classification:
+            ai_data = report_data.ai_risk_classification
+            story.append(Paragraph("6. AI-ASSISTED RISK CLASSIFICATION (ADVISORY)", h2_style))
+            
+            top_rf = ", ".join([rf.description for rf in ai_data.top_risk_factors[:2]]) if ai_data.top_risk_factors else "None identified"
+            top_mf = ", ".join([mf.description for mf in ai_data.top_mitigating_factors[:2]]) if ai_data.top_mitigating_factors else "None identified"
+
+            ai_table_data = [
+                [
+                    Paragraph("<b>Advisory Class:</b>", table_cell_bold),
+                    Paragraph(f"<b>{ai_data.risk_class}</b> ({ai_data.confidence*100:.1f}% Conf)", table_cell_bold),
+                    Paragraph("<b>Model Architecture:</b>", table_cell_bold),
+                    Paragraph(ai_data.model_name, table_cell)
+                ],
+                [
+                    Paragraph("<b>Risk Factors:</b>", table_cell_bold),
+                    Paragraph(top_rf, table_cell),
+                    Paragraph("<b>Mitigating:</b>", table_cell_bold),
+                    Paragraph(top_mf, table_cell)
+                ],
+                [
+                    Paragraph("<b>Advisory Note:</b>", table_cell_bold),
+                    Paragraph(f"<i>{ai_data.disclaimer}</i>", table_cell),
+                    Paragraph("<b>Training Source:</b>", table_cell_bold),
+                    Paragraph(ai_data.training_source, table_cell)
+                ]
+            ]
+            ai_table = Table(ai_table_data, colWidths=[110, 150, 110, 134])
+            ai_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+                ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e2e8f0")),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ]))
+            story.append(ai_table)
+            story.append(Spacer(1, 8))
+
+        # -------------------------------------------------------------------
         # 7. Forensic Boundaries & Limitations Notice
         # -------------------------------------------------------------------
-        story.append(Paragraph("6. PASSIVE ANALYSIS BOUNDARIES & FORENSIC LIMITATIONS", h2_style))
+        story.append(Paragraph("7. PASSIVE ANALYSIS BOUNDARIES & FORENSIC LIMITATIONS" if report_data.ai_risk_classification else "6. PASSIVE ANALYSIS BOUNDARIES & FORENSIC LIMITATIONS", h2_style))
         lim_text = "<br/>".join([f"• {lim}" for lim in report_data.forensic_limitations])
         lim_p = Paragraph(lim_text, table_cell)
 
@@ -615,3 +711,481 @@ class ReportService:
             pass
             
         return pdf_bytes
+
+    @classmethod
+    def generate_json_str(cls, analysis: AnalysisDetailResponse, indent: int = 2) -> str:
+        """
+        Serializes structured forensic report model to canonical/formatted JSON string.
+        """
+        report_data = cls.generate_report_model(analysis)
+        if hasattr(report_data, "model_dump_json"):
+            return report_data.model_dump_json(indent=indent)
+        elif hasattr(report_data, "json"):
+            return report_data.json(indent=indent)
+        else:
+            return json.dumps(report_data, default=str, indent=indent)
+
+    @classmethod
+    def generate_html_str(cls, analysis: AnalysisDetailResponse) -> str:
+        """
+        Renders a self-contained, standalone offline HTML forensic audit report.
+        Contains embedded CSS, no external CDNs, and complete evidence mappings.
+        """
+        report_data = cls.generate_report_model(analysis)
+        meta = report_data.case_metadata
+        exec_s = report_data.executive_summary
+        pqc = report_data.pqc_hndl_assessment
+        crypto = report_data.cryptographic_posture
+
+        # Build Session Rows HTML
+        session_rows_html = []
+        for s in report_data.session_inventory:
+            session_rows_html.append(f"""
+            <tr>
+              <td class="font-mono">{html.escape(s.session_id)}</td>
+              <td><strong>{html.escape(s.protocol)}</strong> ({html.escape(s.transport_mode)})</td>
+              <td class="font-mono">{html.escape(s.client)} &rarr; {html.escape(s.server)}</td>
+              <td class="font-mono">{html.escape(s.tls_version or 'None')}<br/><span class="text-muted">{html.escape(s.cipher_suite or 'None')}</span></td>
+              <td>{html.escape(s.pfs_evidence_state)}</td>
+            </tr>
+            """)
+        session_rows_str = "\n".join(session_rows_html)
+
+        # Build Evidence Mapping Rows HTML
+        is_pop3_only = (meta.protocols_detected == ["POP3"]) or (len(report_data.session_inventory) > 0 and all(s.protocol == "POP3" for s in report_data.session_inventory))
+        is_smtp_or_imap = all(s.protocol in ["SMTP", "IMAP"] for s in report_data.session_inventory) if report_data.session_inventory else True
+        upgrade_term = "STLS" if is_pop3_only else ("STARTTLS" if is_smtp_or_imap else "STARTTLS / STLS")
+
+        ev_rows_html = []
+        for em in report_data.evidence_mapping:
+            adv_str = f"Frame {em.advertised_frame}" if em.advertised_frame else "N/A"
+            req_str = f"Frame {em.requested_frame}" if em.requested_frame else "N/A"
+            acc_str = f"Frame {em.accepted_frame}" if em.accepted_frame else "N/A"
+            ch_str = f"Frame {em.client_hello_frame}" if em.client_hello_frame else "N/A"
+            sh_str = f"Frame {em.server_hello_frame}" if em.server_hello_frame else "N/A"
+
+            ev_rows_html.append(f"""
+            <tr>
+              <td><strong>{html.escape(em.protocol)}</strong> ({em.session_packet_count} pkts)</td>
+              <td class="font-mono">{html.escape(adv_str)}</td>
+              <td class="font-mono">{html.escape(req_str)}</td>
+              <td class="font-mono">{html.escape(acc_str)}</td>
+              <td class="font-mono text-cyan">{html.escape(ch_str)}</td>
+              <td class="font-mono text-cyan">{html.escape(sh_str)}</td>
+            </tr>
+            """)
+        ev_rows_str = "\n".join(ev_rows_html)
+
+        # Build Findings HTML
+        findings_html = []
+        if report_data.findings:
+            for f in report_data.findings:
+                sev_badge_class = f"badge-{f.severity.lower()}"
+                findings_html.append(f"""
+                <div class="finding-card finding-{f.severity.lower()}">
+                  <div class="finding-header">
+                    <div>
+                      <span class="badge {sev_badge_class}">{html.escape(f.severity)}</span>
+                      <strong class="finding-title">{html.escape(f.title)}</strong>
+                    </div>
+                    <div class="finding-meta">
+                      <span class="text-muted">Standard:</span> <strong>{html.escape(f.standards_reference)}</strong> | 
+                      <span class="text-muted">Anchors:</span> <strong>{html.escape(f.frame_anchors_display)}</strong>
+                    </div>
+                  </div>
+                  <div class="finding-body">
+                    <p><strong>ID:</strong> <code class="font-mono">{html.escape(f.finding_id)}</code></p>
+                    <p><strong>Description:</strong> {html.escape(f.description)}</p>
+                    <div class="remediation-box">
+                      <strong>Remediation Guidance:</strong> {html.escape(f.remediation or 'No specific remediation required.')}
+                    </div>
+                  </div>
+                </div>
+                """)
+        else:
+            findings_html.append("<p class='text-muted'>No security findings identified in this capture.</p>")
+        findings_str = "\n".join(findings_html)
+
+        # Build Certificate Details section if observable in any session
+        cert_section_html = ""
+        observable_certs = [s.certificate_details for s in analysis.sessions if s.certificate_details and s.certificate_details.visibility == "OBSERVABLE"]
+        if observable_certs:
+            cd = observable_certs[0]
+            san_str = ", ".join(cd.san_names) if cd.san_names else "None / Not Specified"
+            lims_str = "<br/>".join([f"&bull; {html.escape(lim)}" for lim in cd.analysis_limitations]) if cd.analysis_limitations else "None"
+            cert_section_html = f"""
+            <section class="report-section">
+              <h2>5. Observable X.509 Certificate Metadata</h2>
+              <div class="card cert-card">
+                <table class="data-table">
+                  <tbody>
+                    <tr><td style="width: 220px;"><strong>Subject:</strong></td><td class="font-mono">{html.escape(cd.subject or 'Unknown')}</td></tr>
+                    <tr><td><strong>Issuer:</strong></td><td class="font-mono">{html.escape(cd.issuer or 'Unknown')}</td></tr>
+                    <tr><td><strong>Serial Number:</strong></td><td class="font-mono">{html.escape(cd.serial_number or 'Unknown')}</td></tr>
+                    <tr><td><strong>SHA-256 Fingerprint:</strong></td><td class="font-mono text-cyan">{html.escape(cd.certificate_fingerprint_sha256 or 'Unknown')}</td></tr>
+                    <tr><td><strong>Validity Period:</strong></td><td>{html.escape(cd.not_before or 'Unknown')} &rarr; {html.escape(cd.not_after or 'Unknown')} ({html.escape(cd.validity_status)})</td></tr>
+                    <tr><td><strong>Public Key:</strong></td><td>{html.escape(cd.public_key_algorithm or 'Unknown')} ({cd.public_key_bits or 'N/A'} bits)</td></tr>
+                    <tr><td><strong>Signature Algorithm:</strong></td><td>{html.escape(cd.signature_algorithm or 'Unknown')}</td></tr>
+                    <tr><td><strong>SANs:</strong></td><td>{html.escape(san_str)}</td></tr>
+                    <tr><td><strong>Trust / Chain Status:</strong></td><td><span class="badge badge-medium">{html.escape(cd.chain_trust_status)}</span> (Length: {cd.chain_length})</td></tr>
+                    <tr><td><strong>Forensic Boundaries:</strong></td><td class="text-muted">{lims_str}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+            """
+
+        # Build AI-Assisted Risk Classification section HTML
+        ai_section_html = ""
+        if report_data.ai_risk_classification:
+            ai = report_data.ai_risk_classification
+            top_rf_str = ", ".join([rf.description for rf in ai.top_risk_factors[:3]]) if ai.top_risk_factors else "None identified"
+            top_mf_str = ", ".join([mf.description for mf in ai.top_mitigating_factors[:3]]) if ai.top_mitigating_factors else "None identified"
+            ai_badge_class = f"badge-{ai.risk_class.lower()}" if ai.risk_class.lower() in ["critical", "high", "medium", "low", "info"] else "badge-info"
+            ai_section_html = f"""
+            <section class="report-section">
+              <h2>AI-Assisted Risk Classification (Advisory)</h2>
+              <div class="card">
+                <table class="data-table">
+                  <tbody>
+                    <tr>
+                      <td style="width: 220px;"><strong>Advisory Risk Class:</strong></td>
+                      <td><span class="badge {ai_badge_class}">{html.escape(ai.risk_class)}</span> ({ai.confidence*100:.1f}% Confidence)</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Model Architecture:</strong></td>
+                      <td class="font-mono">{html.escape(ai.model_name)} ({html.escape(ai.model_version)})</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Primary Risk Factors:</strong></td>
+                      <td>{html.escape(top_rf_str)}</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Mitigating Factors:</strong></td>
+                      <td>{html.escape(top_mf_str)}</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Explainability Summary:</strong></td>
+                      <td>{html.escape(ai.explanation)}</td>
+                    </tr>
+                    <tr>
+                      <td><strong>Advisory Disclaimer:</strong></td>
+                      <td class="text-muted">{html.escape(ai.disclaimer)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+            """
+
+        # Build Limitations List HTML
+        lim_items_html = "\n".join([f"<li>{html.escape(lim)}</li>" for lim in report_data.forensic_limitations])
+
+        # Full Standalone HTML Document
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SecureMailScope X Report - {html.escape(meta.filename)}</title>
+  <style>
+    :root {{
+      --bg-dark: #090d16;
+      --bg-card: #0f172a;
+      --bg-card-alt: #131d31;
+      --border-color: #1e293b;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --cyan-main: #06b6d4;
+      --cyan-light: #38bdf8;
+      --crit-color: #ef4444;
+      --high-color: #f97316;
+      --med-color: #eab308;
+      --low-color: #3b82f6;
+      --info-color: #06b6d4;
+      --green-color: #10b981;
+    }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.5;
+      padding: 30px;
+    }}
+    .container {{ max-width: 1100px; margin: 0 auto; }}
+    .header {{
+      border-bottom: 2px solid var(--cyan-main);
+      padding-bottom: 16px;
+      margin-bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 16px;
+    }}
+    .header h1 {{ font-size: 22px; color: #fff; font-weight: 700; letter-spacing: -0.02em; }}
+    .header p {{ color: var(--text-muted); font-size: 13px; margin-top: 4px; }}
+    .report-section {{ margin-bottom: 28px; }}
+    .report-section h2 {{
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--cyan-light);
+      margin-bottom: 12px;
+      font-weight: 700;
+    }}
+    .card {{
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }}
+    .scorecard-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+    }}
+    .score-card {{
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 14px;
+      text-align: center;
+    }}
+    .score-card .score-title {{ font-size: 11.5px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; margin-bottom: 6px; }}
+    .score-card .score-val {{ font-size: 24px; font-weight: 700; color: var(--cyan-main); }}
+    .score-card .score-sub {{ font-size: 11px; color: var(--text-muted); margin-top: 4px; }}
+    .data-table {{ width: 100%; border-collapse: collapse; font-size: 12.5px; text-align: left; }}
+    .data-table th {{ background-color: var(--bg-card-alt); color: #cbd5e1; padding: 10px 12px; font-weight: 600; border-bottom: 1px solid var(--border-color); }}
+    .data-table td {{ padding: 10px 12px; border-bottom: 1px solid var(--border-color); vertical-align: top; }}
+    .data-table tr:hover {{ background-color: rgba(255,255,255,0.02); }}
+    .font-mono {{ font-family: "JetBrains Mono", Consolas, "Liberation Mono", Menlo, monospace; font-size: 11.5px; }}
+    .badge {{
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      font-family: monospace;
+    }}
+    .badge-critical {{ background-color: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; }}
+    .badge-high {{ background-color: rgba(249, 115, 22, 0.2); color: #fb923c; border: 1px solid #f97316; }}
+    .badge-medium {{ background-color: rgba(234, 179, 8, 0.2); color: #facc15; border: 1px solid #eab308; }}
+    .badge-low {{ background-color: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid #3b82f6; }}
+    .badge-info {{ background-color: rgba(6, 182, 212, 0.2); color: #22d3ee; border: 1px solid #06b6d4; }}
+    .text-cyan {{ color: var(--cyan-main); }}
+    .text-muted {{ color: var(--text-muted); }}
+    .finding-card {{
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-left: 4px solid #64748b;
+      border-radius: 6px;
+      padding: 14px;
+      margin-bottom: 10px;
+    }}
+    .finding-critical {{ border-left-color: var(--crit-color); }}
+    .finding-high {{ border-left-color: var(--high-color); }}
+    .finding-medium {{ border-left-color: var(--med-color); }}
+    .finding-low {{ border-left-color: var(--low-color); }}
+    .finding-info {{ border-left-color: var(--info-color); }}
+    .finding-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px; }}
+    .finding-title {{ font-size: 13px; color: #fff; margin-left: 6px; }}
+    .finding-meta {{ font-size: 11px; color: var(--text-muted); }}
+    .finding-body p {{ font-size: 12px; color: #cbd5e1; margin-bottom: 6px; }}
+    .remediation-box {{
+      margin-top: 8px;
+      padding: 8px 12px;
+      background-color: rgba(6, 182, 212, 0.08);
+      border-left: 2px solid var(--cyan-main);
+      font-size: 11.5px;
+      color: #e2e8f0;
+      border-radius: 0 4px 4px 0;
+    }}
+    .limitations-list {{ padding-left: 20px; font-size: 12px; color: var(--text-muted); }}
+    .limitations-list li {{ margin-bottom: 6px; }}
+    .footer {{
+      border-top: 1px solid var(--border-color);
+      padding-top: 16px;
+      margin-top: 32px;
+      font-size: 11px;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div>
+        <h1>SECUREMAILSCOPE X — FORENSIC AUDIT REPORT</h1>
+        <p>Explainable AI-Assisted Email Cryptographic Forensics &bull; Offline Deterministic Evidence</p>
+      </div>
+      <div style="text-align: right;">
+        <span class="badge badge-info">OFFLINE LOCAL REPORT</span>
+        <p style="font-size: 11px;">Generated UTC: {html.escape(meta.analysis_timestamp_utc)}</p>
+      </div>
+    </header>
+
+    <!-- 1. Case Metadata -->
+    <section class="report-section">
+      <h2>1. Case & Capture Metadata</h2>
+      <div class="card">
+        <table class="data-table">
+          <tbody>
+            <tr>
+              <td style="width: 20%;"><strong>Capture File:</strong></td>
+              <td class="font-mono text-cyan" style="width: 30%;">{html.escape(meta.filename)}</td>
+              <td style="width: 20%;"><strong>Analysis ID:</strong></td>
+              <td class="font-mono" style="width: 30%;">{html.escape(meta.analysis_id)}</td>
+            </tr>
+            <tr>
+              <td><strong>Raw Capture Frames:</strong></td>
+              <td>{meta.raw_pcap_frame_count:,} frames</td>
+              <td><strong>File Size:</strong></td>
+              <td>{meta.file_size_bytes:,} bytes</td>
+            </tr>
+            <tr>
+              <td><strong>Reconstructed Sessions:</strong></td>
+              <td>{meta.reconstructed_session_count} session(s)</td>
+              <td><strong>Protocols Observed:</strong></td>
+              <td>{html.escape(", ".join(meta.protocols_detected))}</td>
+            </tr>
+            <tr>
+              <td><strong>Dissector Engine:</strong></td>
+              <td colspan="3" class="font-mono">{html.escape(meta.tshark_version)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 2. Executive Summary Scorecard -->
+    <section class="report-section">
+      <h2>2. Executive Security & Evidence Summary</h2>
+      <div class="scorecard-grid">
+        <div class="score-card">
+          <div class="score-title">Security Grade</div>
+          <div class="score-val">Grade {html.escape(exec_s.security_grade)}</div>
+          <div class="score-sub">Score: {exec_s.security_score}/100</div>
+        </div>
+        <div class="score-card">
+          <div class="score-title">Capture Health</div>
+          <div class="score-val" style="color: var(--green-color);">{exec_s.capture_health_score}%</div>
+          <div class="score-sub">Status: {html.escape(exec_s.capture_health_grade)}</div>
+        </div>
+        <div class="score-card">
+          <div class="score-title">Evidence Confidence</div>
+          <div class="score-val">{exec_s.evidence_confidence_score}%</div>
+          <div class="score-sub">Level: {html.escape(exec_s.evidence_confidence_level)}</div>
+        </div>
+        <div class="score-card">
+          <div class="score-title">Findings Evaluated</div>
+          <div class="score-val">{len(report_data.findings)} Total</div>
+          <div class="score-sub">Crit: {exec_s.critical_findings_count} | High: {exec_s.high_findings_count} | Med: {exec_s.medium_findings_count}</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Session Inventory -->
+    <section class="report-section">
+      <h2>3. Reconstructed Email Sessions Inventory</h2>
+      <div class="card" style="padding: 0; overflow-x: auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Stream ID</th>
+              <th>Protocol & Mode</th>
+              <th>Endpoints</th>
+              <th>TLS & Cipher</th>
+              <th>Forward Secrecy</th>
+            </tr>
+          </thead>
+          <tbody>
+            {session_rows_str}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 4. Evidence Mapping -->
+    <section class="report-section">
+      <h2>4. Forensic Evidence & Frame Mapping</h2>
+      <div class="card" style="padding: 0; overflow-x: auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Protocol</th>
+              <th>{html.escape(upgrade_term)} Advertised</th>
+              <th>{html.escape(upgrade_term)} Requested</th>
+              <th>{html.escape(upgrade_term)} Accepted</th>
+              <th>Client Hello</th>
+              <th>Server Hello</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ev_rows_str}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {cert_section_html}
+
+    <!-- 6. Security Findings -->
+    <section class="report-section">
+      <h2>{"6" if cert_section_html else "5"}. Security Findings & Compliance Assessment</h2>
+      {findings_str}
+    </section>
+
+    <!-- 7. PQC / HNDL Assessment -->
+    <section class="report-section">
+      <h2>{"7" if cert_section_html else "6"}. Post-Quantum Readiness & HNDL Risk Assessment</h2>
+      <div class="card">
+        <table class="data-table">
+          <tbody>
+            <tr>
+              <td style="width: 220px;"><strong>PQC Readiness Status:</strong></td>
+              <td><span class="badge badge-info">{html.escape(pqc.status)}</span></td>
+            </tr>
+            <tr>
+              <td><strong>Observed Key Exchange:</strong></td>
+              <td class="font-mono">{html.escape(pqc.observed_key_exchange)}</td>
+            </tr>
+            <tr>
+              <td><strong>HNDL Exposure Summary:</strong></td>
+              <td>{html.escape(pqc.hndl_exposure_summary)}</td>
+            </tr>
+            <tr>
+              <td><strong>Recommended KEM Standard:</strong></td>
+              <td><strong>{html.escape(pqc.recommended_kem_standard)}</strong></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    {ai_section_html}
+
+    <!-- 8. Limitations Notice -->
+    <section class="report-section">
+      <h2>{"8" if cert_section_html else "7"}. Passive Analysis Boundaries & Forensic Limitations</h2>
+      <div class="card">
+        <ul class="limitations-list">
+          {lim_items_html}
+        </ul>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <div>SecureMailScope X Forensic Engine &bull; SIH26159 Reference Implementation</div>
+      <div>Canonical Provenance &bull; SHA-256 Sealed Evidence</div>
+    </footer>
+  </div>
+</body>
+</html>"""

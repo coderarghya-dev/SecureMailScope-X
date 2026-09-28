@@ -52,6 +52,7 @@ class PCAPReader:
             "-e", "tls.handshake.extensions_server_name",
             "-e", "tls.record.version",
             "-e", "tls.handshake.extension.type",
+            "-e", "tls.handshake.certificate",
             "-e", "_ws.col.Info"
         ]
 
@@ -114,7 +115,8 @@ class PCAPReader:
             tls_sni = clean_parts[14] if len(clean_parts) > 14 else ""
             tls_rec_ver = clean_parts[15] if len(clean_parts) > 15 else ""
             tls_ext_type = clean_parts[16] if len(clean_parts) > 16 else ""
-            col_info = clean_parts[17] if len(clean_parts) > 17 else ""
+            tls_certificate = clean_parts[17] if len(clean_parts) > 17 else ""
+            col_info = clean_parts[18] if len(clean_parts) > 18 else (clean_parts[17] if len(clean_parts) > 17 else "")
 
             try:
                 frame_number = int(frame_num_str)
@@ -143,7 +145,8 @@ class PCAPReader:
                 "tls_ciphersuite": tls_ciphersuite,
                 "tls_sni": tls_sni,
                 "tls_record_version": tls_rec_ver,
-                "tls_extension_types": tls_ext_type
+                "tls_extension_types": tls_ext_type,
+                "tls_certificate": tls_certificate
             })
 
         return packets

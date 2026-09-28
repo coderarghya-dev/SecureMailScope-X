@@ -61,25 +61,39 @@ class CryptographicRuleEngine:
                     )
                 ]
 
+            proto_val = session.protocol.value if hasattr(session.protocol, "value") else str(session.protocol)
+            if proto_val == "POP3":
+                pt_rec = "Enforce mandatory TLS encryption via STLS (POP3 port 110) or Direct TLS (POP3S port 995) per RFC 8314."
+                why_trig = "POP3 email session conducted entirely in cleartext without TLS or STLS cryptographic wrapping."
+                std_refs = ["RFC 2595", "RFC 8314"]
+            elif proto_val == "IMAP":
+                pt_rec = "Enforce mandatory TLS encryption via STARTTLS (IMAP port 143) or Direct TLS (IMAPS port 993) per RFC 8314."
+                why_trig = "IMAP email session conducted entirely in cleartext without TLS or STARTTLS cryptographic wrapping."
+                std_refs = ["RFC 2595", "RFC 8314"]
+            else:
+                pt_rec = "Enforce mandatory TLS encryption via STARTTLS (SMTP port 587) or Direct TLS (SMTPS port 465) per RFC 8314."
+                why_trig = "SMTP email session conducted entirely in cleartext without TLS or STARTTLS cryptographic wrapping."
+                std_refs = ["RFC 3207", "RFC 8314"]
+
             findings.append(SecurityFinding(
                 id="FINDING-PLAINTEXT-COMMUNICATION",
                 title="Unencrypted Cleartext Email Session",
                 severity=FindingSeverity.CRITICAL,
                 category=FindingCategory.PROTOCOL_SECURITY,
                 description=(
-                    f"Email session on {session.protocol.value} ({session.server_ip}:{session.server_port}) "
+                    f"Email session on {proto_val} ({session.server_ip}:{session.server_port}) "
                     "was conducted entirely in plaintext without cryptographic encryption. Authentication credentials, "
                     "headers, and email payloads are exposed to passive eavesdropping and MITM tampering."
                 ),
                 evidence_frames=pt_frames,
-                recommendation="Enforce mandatory TLS encryption via STARTTLS (SMTP 587, POP3 110, IMAP 143) or Direct TLS (SMTPS 465, IMAPS 993, POP3S 995).",
+                recommendation=pt_rec,
                 explanation=FindingExplanation(
                     finding_id="FINDING-PLAINTEXT-COMMUNICATION",
                     rule_id="RULE-PLAINTEXT-TRAFFIC",
-                    why_triggered="Email session conducted entirely in cleartext without TLS or STARTTLS cryptographic wrapping.",
+                    why_triggered=why_trig,
                     evidence=pt_evidence,
                     confidence_boundary="Direct frame inspection of packet payload and unencrypted commands.",
-                    standards_refs=["RFC 3207", "RFC 8314"]
+                    standards_refs=std_refs
                 )
             ))
 

@@ -455,30 +455,22 @@ export const DashboardPage: React.FC = () => {
             </div>
 
             {analyses.length > 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div className="recent-pcap-list">
                 {analyses.slice(0, 4).map((a) => (
                   <div
                     key={a.analysis_id}
                     onClick={() => navigate('/sessions')}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '8px 12px',
-                      borderRadius: 'var(--radius-md)',
-                      backgroundColor: 'var(--surface-elevated)',
-                      border: '1px solid var(--border-subtle)',
-                      cursor: 'pointer',
-                      transition: 'border-color 0.14s ease',
-                    }}
+                    className="recent-pcap-row"
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span className="badge badge-cyan">{a.security_score?.overall_grade || 'A'}</span>
-                      <div>
-                        <div style={{ fontSize: '11.5px', fontWeight: 600, color: '#f8fafc', fontFamily: 'JetBrains Mono, monospace' }}>
+                    <div className="recent-pcap-left">
+                      <span className="badge badge-cyan" style={{ flexShrink: 0 }}>
+                        {a.security_score?.overall_grade || 'A'}
+                      </span>
+                      <div className="recent-pcap-meta-container">
+                        <div className="recent-pcap-filename" title={a.filename}>
                           {a.filename}
                         </div>
-                        <div style={{ fontSize: '9.5px', color: 'var(--text-muted)', display: 'flex', gap: '6px', fontFamily: 'JetBrains Mono, monospace' }}>
+                        <div className="recent-pcap-subtext">
                           <span>{a.total_packets} pkts</span>
                           <span>•</span>
                           <span>{a.streams_count} streams</span>
@@ -487,13 +479,19 @@ export const DashboardPage: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '10px', fontFamily: 'JetBrains Mono, monospace', color: (a.critical_findings_count ?? 0) > 0 ? '#f87171' : '#34d399' }}>
+                    <div className="recent-pcap-right">
+                      <span
+                        className="recent-pcap-status"
+                        style={{
+                          color: (a.critical_findings_count ?? 0) > 0 ? '#f87171' : '#34d399',
+                        }}
+                        title={(a.critical_findings_count ?? 0) > 0 ? `${a.critical_findings_count} Critical Issues` : getObservedTlsLabel(a)}
+                      >
                         {(a.critical_findings_count ?? 0) > 0
                           ? `${a.critical_findings_count} Critical Issues`
                           : getObservedTlsLabel(a)}
                       </span>
-                      <ArrowRight size={11} color="#64748b" />
+                      <ArrowRight size={11} color="#64748b" style={{ flexShrink: 0 }} />
                     </div>
                   </div>
                 ))}

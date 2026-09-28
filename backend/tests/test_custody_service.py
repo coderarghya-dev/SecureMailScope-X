@@ -6,6 +6,8 @@ tamper detection, and REST API custody endpoints.
 
 import os
 import sys
+import shutil
+import tempfile
 import unittest
 from fastapi.testclient import TestClient
 
@@ -14,6 +16,7 @@ BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
+from app.db.database import set_custom_db_path, init_db
 from app.main import app
 from app.services.analysis_service import AnalysisService
 from app.services.custody_service import CustodyService, compute_sha256
@@ -25,6 +28,13 @@ class TestCustodyService(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        cls.temp_dir = tempfile.mkdtemp(prefix="sms_custody_test_")
+        cls.db_path = os.path.join(cls.temp_dir, "test_custody.db")
+        set_custom_db_path(cls.db_path)
+        init_db(cls.db_path)
+        CustodyService._records.clear()
+        AnalysisService._cache.clear()
+
         cls.client = TestClient(app)
         if os.path.isfile(cls.SMTP_PCAP):
             cls.analysis = AnalysisService.process_local_pcap_path(cls.SMTP_PCAP)
@@ -32,6 +42,14 @@ class TestCustodyService(unittest.TestCase):
         else:
             cls.analysis = None
             cls.analysis_id = None
+
+    @classmethod
+    def tearDownClass(cls):
+        CustodyService._records.clear()
+        AnalysisService._cache.clear()
+        set_custom_db_path(None)
+        if hasattr(cls, "temp_dir") and os.path.exists(cls.temp_dir):
+            shutil.rmtree(cls.temp_dir, ignore_errors=True)
 
     def test_01_capture_hashing_and_initial_events(self):
         """Verify capture SHA-256 and initial chained custody events."""

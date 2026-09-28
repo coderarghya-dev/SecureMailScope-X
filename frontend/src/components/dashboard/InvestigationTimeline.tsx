@@ -255,93 +255,38 @@ export const InvestigationTimeline: React.FC = () => {
         <span className="badge badge-emerald">EVIDENCE-BOUND TIMELINE</span>
       </div>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-          gap: '8px',
-        }}
-      >
+      <div className="investigation-timeline-grid">
         {timelineSteps.map((step, idx) => (
           <div
             key={`${step.title}-${idx}`}
             onClick={() => navigate(step.page)}
-            style={{
-              padding: '8px 10px',
-              backgroundColor: 'var(--surface-inset)',
-              borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--border-subtle)',
-              cursor: 'pointer',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between',
-              transition: 'border-color 0.15s ease',
-            }}
+            className="investigation-timeline-card"
             title={`Click to inspect evidence on ${step.page}`}
           >
-            <div>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: '3px',
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: '9px',
-                    fontFamily: 'JetBrains Mono, monospace',
-                    color: 'var(--text-muted)',
-                  }}
-                >
+            <div className="investigation-timeline-card-content">
+              <div className="investigation-timeline-card-header">
+                <span className="investigation-timeline-step-num">
                   STEP {String(idx + 1).padStart(2, '0')}
                 </span>
                 <span
-                  className="badge badge-cyan"
-                  style={{
-                    fontSize: '8.5px',
-                    padding: '1px 5px',
-                    color: step.color,
-                  }}
+                  className="badge badge-cyan investigation-timeline-badge"
+                  style={{ color: step.color }}
+                  title={step.frame}
                 >
                   {step.frame}
                 </span>
               </div>
 
-              <div
-                style={{
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  color: '#f8fafc',
-                  marginBottom: '2px',
-                }}
-              >
+              <div className="investigation-timeline-title" title={step.title}>
                 {step.title}
               </div>
 
-              <div
-                style={{
-                  fontSize: '9.5px',
-                  color: 'var(--text-secondary)',
-                  lineHeight: 1.3,
-                }}
-              >
+              <div className="investigation-timeline-detail">
                 {step.detail}
               </div>
             </div>
 
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'flex-end',
-                marginTop: '6px',
-                gap: '3px',
-                fontSize: '9px',
-                color: 'var(--text-cyan)',
-              }}
-            >
+            <div className="investigation-timeline-footer">
               <span>Inspect</span>
               <ArrowRight size={9} />
             </div>

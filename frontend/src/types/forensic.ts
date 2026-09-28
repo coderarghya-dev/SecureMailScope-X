@@ -49,6 +49,10 @@ export interface StreamSummary {
     score: number;
     level?: string;
   };
+  certificate_details?: CertificateDetails;
+  anomaly_report?: SessionAnomalyReport;
+  ai_risk_classification?: AIRiskClassification;
+  raw_session?: any;
 }
 
 export interface SecurityFinding {
@@ -66,6 +70,80 @@ export interface SecurityFinding {
   evidence_frames?: number[];
 
   cve_ref?: string;
+}
+
+export interface CertificateDetails {
+  visibility: string;
+  frame_number?: number | null;
+  subject?: string | null;
+  issuer?: string | null;
+  serial_number?: string | null;
+  not_before?: string | null;
+  not_after?: string | null;
+  validity_status: string;
+  days_until_expiry?: number | null;
+  validity_reference_time?: string | null;
+  reference_time_source: string;
+  self_issued?: boolean | null;
+  self_signature_verified?: boolean | null;
+  self_signed?: boolean | null;
+  signature_algorithm?: string | null;
+  public_key_algorithm?: string | null;
+  public_key_bits?: number | null;
+  certificate_fingerprint_sha256?: string | null;
+  san_names?: string[];
+  chain_length: number;
+  chain_observed: boolean;
+  chain_trust_status: string;
+  analysis_limitations?: string[];
+}
+
+export interface TLSAnomaly {
+  anomaly_id: string;
+  title: string;
+  severity: string;
+  anomaly_score: number;
+  confidence: number;
+  category: string;
+  observed_evidence?: Record<string, any>;
+  frame_anchors?: number[];
+  explanation?: string;
+  remediation?: string;
+}
+
+export interface SessionAnomalyReport {
+  session_id: string;
+  total_anomalies: number;
+  overall_anomaly_score: number;
+  highest_severity: string;
+  anomalies: TLSAnomaly[];
+  detection_method: string;
+  disclaimer: string;
+}
+
+export interface AIRiskFactor {
+  feature: string;
+  description: string;
+  observed_value: number;
+  contribution: number;
+  direction: string;
+  explanation: string;
+}
+
+export interface AIRiskClassification {
+  risk_class: string;
+  confidence: number;
+  model_name: string;
+  model_version: string;
+  training_source: string;
+  authoritative: boolean;
+  disclaimer: string;
+  feature_vector?: Record<string, number>;
+  class_probabilities?: Record<string, number>;
+  top_risk_factors?: AIRiskFactor[];
+  top_mitigating_factors?: AIRiskFactor[];
+  explanation?: string;
+  limitations?: string;
 }
 
 export interface AnalysisSummary {

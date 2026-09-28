@@ -236,6 +236,88 @@ def export_forensic_report_pdf(analysis_id: str):
 
 
 @router.get(
+    "/analyze/{analysis_id}/export/json",
+    summary="Export Forensic Report as Formatted JSON",
+    description="Generates and downloads a structured JSON export of the complete 8-section forensic report model."
+)
+@router.get(
+    "/analyses/{analysis_id}/export/json",
+    include_in_schema=False
+)
+@router.get(
+    "/analyses/{analysis_id}/json",
+    include_in_schema=False
+)
+def export_forensic_report_json(analysis_id: str):
+    analysis = AnalysisService.get_analysis(analysis_id)
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Analysis report '{analysis_id}' not found."
+        )
+    try:
+        json_str = ReportService.generate_json_str(analysis)
+        clean_filename = analysis.file_name.rsplit(".", 1)[0]
+        json_filename = f"{clean_filename}_forensic_report.json"
+        return Response(
+            content=json_str,
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f'attachment; filename="{json_filename}"',
+                "Content-Type": "application/json"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to render JSON report: {str(e)}"
+        )
+
+
+@router.get(
+    "/analyze/{analysis_id}/export/html",
+    summary="Export Forensic Report as Standalone Offline HTML",
+    description="Generates and downloads a publication-grade, self-contained offline HTML forensic audit report with embedded styling."
+)
+@router.get(
+    "/analyses/{analysis_id}/export/html",
+    include_in_schema=False
+)
+@router.get(
+    "/analyses/{analysis_id}/html",
+    include_in_schema=False
+)
+@router.get(
+    "/analyses/{analysis_id}/report/html",
+    include_in_schema=False
+)
+def export_forensic_report_html(analysis_id: str):
+    analysis = AnalysisService.get_analysis(analysis_id)
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Analysis report '{analysis_id}' not found."
+        )
+    try:
+        html_str = ReportService.generate_html_str(analysis)
+        clean_filename = analysis.file_name.rsplit(".", 1)[0]
+        html_filename = f"{clean_filename}_forensic_report.html"
+        return Response(
+            content=html_str,
+            media_type="text/html",
+            headers={
+                "Content-Disposition": f'attachment; filename="{html_filename}"',
+                "Content-Type": "text/html; charset=utf-8"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to render HTML report: {str(e)}"
+        )
+
+
+@router.get(
     "/analyses/{analysis_id}/custody",
     response_model=CustodyRecordResponse,
     summary="Get Cryptographic Chain of Custody Record",

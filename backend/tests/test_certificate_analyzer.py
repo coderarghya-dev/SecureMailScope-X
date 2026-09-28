@@ -516,6 +516,39 @@ class TestCertificateAnalyzer(unittest.TestCase):
         self.assertTrue(cert.chain_observed)
         self.assertEqual(cert.chain_trust_status, "NOT_VALIDATED")
 
+    # -----------------------------------------------------------------------
+    # TEST 18: Real SMTP TLS 1.2 + X.509 Certificate sample extraction & validation
+    # -----------------------------------------------------------------------
+    def test_18_real_smtp_tls12_certificate_sample(self):
+        real_pcap = r"D:\SecureMailScope\pcap_samples\smtp-tls12-cert.pcapng"
+        if os.path.exists(real_pcap):
+            report, sessions = AnalysisService._run_pipeline(
+                real_pcap,
+                "smtp-tls12-cert.pcapng",
+                os.path.getsize(real_pcap),
+                "test_analysis_cert_12_isolated"
+            )
+            self.assertTrue(len(report.sessions) > 0)
+            primary_sess = report.sessions[0]
+            self.assertEqual(primary_sess.tls.negotiated_version, "TLS 1.2")
+            self.assertEqual(primary_sess.tls.cipher_name, "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384")
+
+            cd = primary_sess.certificate_details
+            self.assertIsNotNone(cd)
+            self.assertEqual(cd.visibility, "OBSERVABLE")
+            self.assertIn("mail.securemailscope.local", cd.subject)
+            self.assertIn("SecureMailScope Forensics Lab", cd.issuer)
+            self.assertIsNotNone(cd.serial_number)
+            self.assertEqual(cd.certificate_fingerprint_sha256, "6434f3207ecc2499523296d3b1090febb59ab1a8fde625e0f13efdcf2d096627")
+            self.assertEqual(cd.public_key_algorithm, "RSA")
+            self.assertEqual(cd.public_key_bits, 2048)
+            self.assertEqual(cd.signature_algorithm, "sha256WithRSAEncryption")
+            self.assertEqual(cd.validity_status, "VALID")
+            self.assertTrue(cd.self_issued)
+            self.assertTrue(cd.self_signed)
+            self.assertEqual(cd.chain_trust_status, "NOT_VALIDATED")
+            self.assertIn("mail.securemailscope.local", cd.san_names)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -196,6 +196,7 @@ class SessionReconstructor:
 
         key_share_observed = False
         server_kx_observed = False
+        cert_der_bytes: Optional[bytes] = None
         for p in pkts:
             ext_types = [t.strip() for t in str(p.get("tls_extension_types") or "").split(",") if t.strip()]
             if "51" in ext_types or "0x0033" in ext_types or "0x33" in ext_types:
@@ -203,6 +204,13 @@ class SessionReconstructor:
             handshake_types = [h.strip() for h in str(p.get("tls_handshake_type") or "").split(",") if h.strip()]
             if "12" in handshake_types:
                 server_kx_observed = True
+            if p.get("tls_certificate") and not cert_der_bytes:
+                raw_hex = str(p["tls_certificate"]).replace(":", "").replace(",", "").replace(" ", "").strip()
+                if raw_hex:
+                    try:
+                        cert_der_bytes = bytes.fromhex(raw_hex)
+                    except Exception:
+                        pass
 
         tls_details = None
         if client_hello_frame or server_hello_frame:
@@ -219,6 +227,9 @@ class SessionReconstructor:
                 key_share_observed=key_share_observed,
                 server_kx_observed=server_kx_observed
             )
+            if tls_details and cert_der_bytes:
+                tls_details.certificate_der_bytes = cert_der_bytes
+                tls_details.certificate_visibility = "Observable (X.509 Certificate Handshake)"
 
         # Determine Security Mode and Upgrade Success
         if is_direct_tls_port:
@@ -280,6 +291,12 @@ class SessionReconstructor:
             capture_health=capture_health,
             evidence_confidence=evidence_confidence
         )
+
+        from .certificate_analyzer import CertificateAnalyzer
+        cert_details = CertificateAnalyzer.analyze_session(session)
+        session.certificate_details = cert_details
+        if tls_details:
+            tls_details.certificate_details = cert_details
 
         session.security_assessment = CryptographicRuleEngine.evaluate_session(session)
         return session

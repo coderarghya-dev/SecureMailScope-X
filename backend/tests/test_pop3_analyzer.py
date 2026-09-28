@@ -154,6 +154,91 @@ class TestPOP3Analyzer(unittest.TestCase):
         self.assertTrue(state.requested, "Client command STLS detected from command match")
         self.assertFalse(state.advertised, "Single STLS command must not simultaneously be flagged as server advertisement")
 
+    def test_07_plaintext_session_dto_construction(self):
+        """Regression test: verify plaintext sessions (tls_details=None) construct SessionDetailDTO cleanly without UnboundLocalError."""
+        import unittest.mock
+        from app.schemas.forensic import EmailSession, EmailProtocol, SecurityMode, SessionSecurityAssessment, CaptureHealth, EvidenceConfidence, SecurityGrade, HealthGrade, ConfidenceLevel
+        from app.forensic.rule_engine import CryptographicRuleEngine
+        from app.services.analysis_service import AnalysisService
+
+        session = EmailSession(
+            session_id="session_plaintext_pop3_test",
+            stream_index=0,
+            protocol=EmailProtocol.POP3,
+            security_mode=SecurityMode.PLAINTEXT,
+            client_ip="192.168.1.100",
+            client_port=54321,
+            server_ip="192.168.1.1",
+            server_port=110,
+            server_hostname=None,
+            start_time_epoch=1700000000.0,
+            end_time_epoch=1700000005.0,
+            duration_seconds=5.0,
+            total_packets=4,
+            greeting_banner="+OK POP3 server ready",
+            client_helo_name=None,
+            starttls_state=STARTTLSState(
+                advertised=False,
+                requested=False,
+                accepted=False,
+                upgrade_successful=False
+            ),
+            tls_details=None,
+            security_assessment=SessionSecurityAssessment(
+                grade=SecurityGrade.F,
+                grade_rationale="Unencrypted plaintext communication observed",
+                post_quantum_ready=False,
+                post_quantum_summary="Plaintext traffic provides zero cryptographic security.",
+                findings=[],
+                critical_findings_count=0,
+                high_findings_count=1,
+                medium_findings_count=0,
+                low_findings_count=0,
+                info_findings_count=0
+            ),
+            capture_health=CaptureHealth(
+                score=70,
+                grade=HealthGrade.ACCEPTABLE if hasattr(HealthGrade, 'ACCEPTABLE') else HealthGrade.FAIR,
+                syn_observed=True,
+                fin_rst_observed=True,
+                total_packets=4,
+                retransmissions_count=0,
+                retransmission_rate=0.0,
+                deduction_reasons=["Unencrypted plaintext protocol detected"]
+            ),
+            evidence_confidence=EvidenceConfidence(
+                score=100,
+                level=ConfidenceLevel.HIGH,
+                handshake_observable=False,
+                version_verifiable=False,
+                cipher_identifiable=False,
+                key_exchange_observable=False,
+                observability_boundary="Unencrypted POP3 session observable in full plaintext.",
+                confidence_factors=["Full cleartext POP3 command and response stream observed"]
+            ),
+            evidence_packets=[]
+        )
+
+        # Evaluate rules to verify FINDING-PLAINTEXT-COMMUNICATION
+        assessment = CryptographicRuleEngine.evaluate_session(session)
+        finding_ids = [f.id for f in assessment.findings]
+        self.assertIn("FINDING-PLAINTEXT-COMMUNICATION", finding_ids)
+        self.assertEqual(assessment.grade, SecurityGrade.F)
+
+        # Check DTO construction in AnalysisService._run_pipeline
+        with unittest.mock.patch("app.services.analysis_service.PCAPReader") as mock_reader_cls, \
+             unittest.mock.patch("app.services.analysis_service.SessionReconstructor.reconstruct_sessions", return_value=[session]), \
+             unittest.mock.patch("app.services.analysis_service.TSharkDetector.get_version", return_value=(True, "TShark 4.0.0")):
+            mock_reader = mock_reader_cls.return_value
+            mock_reader.read_packets.return_value = []
+            mock_reader.get_raw_packet_count.return_value = 4
+
+            report, returned_sessions = AnalysisService._run_pipeline("dummy.pcap", "pop3-plain.pcap", 1024, "analysis_test_pop3_plain")
+            self.assertEqual(len(report.sessions), 1)
+            self.assertIsNone(report.sessions[0].tls)
+            self.assertIsNone(report.sessions[0].certificate_details)
+            self.assertEqual(report.sessions[0].security_mode, "PLAINTEXT")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

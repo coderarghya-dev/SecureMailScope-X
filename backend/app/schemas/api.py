@@ -230,6 +230,31 @@ class MLTriageDTO(BaseModel):
     top_protective_factors: List[MLFeatureContributionDTO] = []
 
 
+class AIRiskFactorDTO(BaseModel):
+    feature: str
+    description: str
+    observed_value: float
+    contribution: float
+    direction: str = "INCREASES_RISK"
+    explanation: str = ""
+
+
+class AIRiskClassificationDTO(BaseModel):
+    risk_class: str
+    confidence: float
+    model_name: str
+    model_version: str
+    training_source: str
+    authoritative: bool = False
+    disclaimer: str
+    feature_vector: Dict[str, float] = {}
+    class_probabilities: Dict[str, float] = {}
+    top_risk_factors: List[AIRiskFactorDTO] = []
+    top_mitigating_factors: List[AIRiskFactorDTO] = []
+    explanation: str = ""
+    limitations: str = ""
+
+
 # ---------------------------------------------------------------------------
 # Domain Authentication & DNS DTOs (Phase 7)
 # ---------------------------------------------------------------------------
@@ -338,6 +363,29 @@ class DomainAuthenticationAssessmentDTO(BaseModel):
     limitations: List[str] = []
 
 
+class TLSAnomalyDTO(BaseModel):
+    anomaly_id: str
+    title: str
+    severity: str
+    anomaly_score: float
+    confidence: float
+    category: str
+    observed_evidence: Dict[str, Any] = {}
+    frame_anchors: List[int] = []
+    explanation: str = ""
+    remediation: str = ""
+
+
+class SessionAnomalyReportDTO(BaseModel):
+    session_id: str
+    total_anomalies: int
+    overall_anomaly_score: float
+    highest_severity: str
+    anomalies: List[TLSAnomalyDTO] = []
+    detection_method: str = "EXPLAINABLE_FEATURE_ANOMALY_ENGINE"
+    disclaimer: str = "Explainable heuristic anomaly scoring — deterministic, evidence-driven feature evaluation without opaque black-box models."
+
+
 class SessionDetailDTO(BaseModel):
     session_id: str
     stream_index: int
@@ -358,6 +406,8 @@ class SessionDetailDTO(BaseModel):
     security_assessment: SecurityAssessmentDTO
     evidence_frames: List[EvidenceFrameDTO] = []
     ml_triage: Optional[MLTriageDTO] = None
+    ai_risk_classification: Optional[AIRiskClassificationDTO] = None
+    anomaly_report: Optional[SessionAnomalyReportDTO] = None
     certificate_details: Optional[CertificateDetailsDTO] = None
     domain_auth: Optional[DomainAuthenticationAssessmentDTO] = None
     eml_forensics: Optional[Dict[str, Any]] = None
@@ -488,6 +538,7 @@ class SessionReportItemDTO(BaseModel):
     certificate_visibility: str
     pfs_evidence_state: str
     pqc_evidence_state: str
+    ai_risk_class: Optional[str] = None
 
 
 class FindingReportItemDTO(BaseModel):
@@ -539,6 +590,7 @@ class ForensicReportResponse(BaseModel):
     evidence_mapping: List[EvidenceMappingItemDTO]
     cryptographic_posture: CryptographicPostureDTO
     pqc_hndl_assessment: PQCHNDLAssessmentDTO
+    ai_risk_classification: Optional[AIRiskClassificationDTO] = None
     forensic_limitations: List[str]
 
 

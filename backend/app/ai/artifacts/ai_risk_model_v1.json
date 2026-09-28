@@ -1,0 +1,39 @@
+{
+  "model_name": "LogisticRegression (Multinomial / L-BFGS)",
+  "model_version": "v1.0.0-synthetic-controlled",
+  "training_source": "Controlled synthetic training dataset for functional demonstration",
+  "training_sample_count": 32,
+  "feature_names": [
+    "protocol_ord",
+    "port_class",
+    "plaintext_flag",
+    "starttls_advertised",
+    "starttls_requested",
+    "starttls_accepted",
+    "direct_tls_flag",
+    "tls_version_ord",
+    "weak_tls_flag",
+    "weak_cipher_flag",
+    "pfs_observed_flag",
+    "pfs_unknown_flag",
+    "cert_observable_flag",
+    "cert_expired_flag",
+    "cert_weak_key_flag",
+    "cert_weak_sig_flag",
+    "anomaly_count",
+    "critical_finding_count",
+    "high_finding_count",
+    "medium_finding_count",
+    "capture_health_norm",
+    "evidence_confidence_norm"
+  ],
+  "classes": [
+    "LOW",
+    "MODERATE",
+    "HIGH",
+    "CRITICAL"
+  ],
+  "random_state": 42,
+  "authoritative": false,
+  "disclaimer": "AI-Assisted Risk Classification is advisory only. Deterministic forensic rules and packet evidence remain authoritative."
+}
