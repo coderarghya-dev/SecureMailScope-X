@@ -197,6 +197,21 @@ export const RemediationPage: React.FC = () => {
   const [verifyMethod, setVerifyMethod] = useState('ACTIVE_SCAN');
   const [planVerifications, setPlanVerifications] = useState<VerificationRecord[]>([]);
 
+  // Keyboard accessibility: ESC closes active modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (showCreatePlanModal) setShowCreatePlanModal(false);
+        if (showApplyModal) setShowApplyModal(false);
+        if (showVerifyModal) setShowVerifyModal(false);
+      }
+    };
+    if (showCreatePlanModal || showApplyModal || showVerifyModal) {
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showCreatePlanModal, showApplyModal, showVerifyModal]);
+
   const { token } = useAuthStore();
 
   const getAuthHeaders = () => {
@@ -548,18 +563,20 @@ export const RemediationPage: React.FC = () => {
                     width: '100%',
                     padding: '6px 8px',
                     borderRadius: '4px',
-                    background: 'var(--bg-surface)',
-                    border: '1px solid var(--border-subtle)',
-                    color: 'var(--text-main)',
+                    background: '#081522',
+                    border: '1px solid rgba(34, 211, 238, 0.25)',
+                    color: '#e5edf7',
                     fontSize: '12px',
                     boxSizing: 'border-box',
+                    colorScheme: 'dark',
+                    outline: 'none',
                   }}
                 >
-                  <option value="POSTFIX">Postfix Mail Transfer Agent</option>
-                  <option value="EXIM">Exim Internet Mailer</option>
-                  <option value="DOVECOT">Dovecot Secure IMAP/POP3 Server</option>
-                  <option value="SENDMAIL">Sendmail MTA</option>
-                  <option value="GENERIC">Generic Mail Appliance</option>
+                  <option value="POSTFIX" style={{ background: '#081522', color: '#e5edf7' }}>Postfix Mail Transfer Agent</option>
+                  <option value="EXIM" style={{ background: '#081522', color: '#e5edf7' }}>Exim Internet Mailer</option>
+                  <option value="DOVECOT" style={{ background: '#081522', color: '#e5edf7' }}>Dovecot Secure IMAP/POP3 Server</option>
+                  <option value="SENDMAIL" style={{ background: '#081522', color: '#e5edf7' }}>Sendmail MTA</option>
+                  <option value="GENERIC" style={{ background: '#081522', color: '#e5edf7' }}>Generic Mail Appliance</option>
                 </select>
               </div>
 
@@ -1468,29 +1485,44 @@ export const RemediationPage: React.FC = () => {
       {/* Modal: Create Plan */}
       {showCreatePlanModal && (
         <div
+          className="modal-backdrop-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowCreatePlanModal(false);
+          }}
           style={{
             position: 'fixed',
+            inset: 0,
             top: 0,
             left: 0,
             right: 0,
             bottom: 0,
-            background: 'rgba(0, 0, 0, 0.7)',
+            width: '100vw',
+            height: '100vh',
+            background: 'rgba(0, 3, 9, 0.85)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 1000,
+            boxSizing: 'border-box',
           }}
         >
           <div
+            className="modal-dialog-card"
             style={{
-              background: 'var(--bg-card)',
-              border: '1px solid var(--border-subtle)',
+              background: '#0b1322',
+              border: '1px solid rgba(34, 211, 238, 0.25)',
               borderRadius: '8px',
               padding: '24px',
               width: '440px',
+              maxWidth: '92vw',
+              boxShadow: '0 20px 45px -8px rgba(0, 0, 0, 0.85)',
+              zIndex: 1001,
+              boxSizing: 'border-box',
             }}
           >
-            <h3 style={{ margin: '0 0 14px 0', fontSize: '15px', fontWeight: 600 }}>Create Case Remediation Plan</h3>
+            <h3 style={{ margin: '0 0 14px 0', fontSize: '15px', fontWeight: 600, color: '#f8fafc' }}>Create Case Remediation Plan</h3>
             <div style={{ marginBottom: '12px' }}>
               <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
                 Plan Title
@@ -1504,10 +1536,12 @@ export const RemediationPage: React.FC = () => {
                   width: '100%',
                   padding: '6px 8px',
                   borderRadius: '4px',
-                  background: 'var(--bg-surface)',
-                  border: '1px solid var(--border-subtle)',
-                  color: 'var(--text-main)',
+                  background: '#081522',
+                  border: '1px solid rgba(34, 211, 238, 0.25)',
+                  color: '#e5edf7',
                   fontSize: '12px',
+                  boxSizing: 'border-box',
+                  outline: 'none',
                 }}
               />
             </div>
@@ -1524,10 +1558,12 @@ export const RemediationPage: React.FC = () => {
                   width: '100%',
                   padding: '6px 8px',
                   borderRadius: '4px',
-                  background: 'var(--bg-surface)',
-                  border: '1px solid var(--border-subtle)',
-                  color: 'var(--text-main)',
+                  background: '#081522',
+                  border: '1px solid rgba(34, 211, 238, 0.25)',
+                  color: '#e5edf7',
                   fontSize: '12px',
+                  boxSizing: 'border-box',
+                  outline: 'none',
                 }}
               />
             </div>
@@ -1569,29 +1605,44 @@ export const RemediationPage: React.FC = () => {
       {/* Modal: Mark Applied */}
       {showApplyModal && (
         <div
+          className="modal-backdrop-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowApplyModal(false);
+          }}
           style={{
             position: 'fixed',
+            inset: 0,
             top: 0,
             left: 0,
             right: 0,
             bottom: 0,
-            background: 'rgba(0, 0, 0, 0.7)',
+            width: '100vw',
+            height: '100vh',
+            background: 'rgba(0, 3, 9, 0.85)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 1000,
+            boxSizing: 'border-box',
           }}
         >
           <div
+            className="modal-dialog-card"
             style={{
-              background: 'var(--bg-card)',
-              border: '1px solid var(--border-subtle)',
+              background: '#0b1322',
+              border: '1px solid rgba(34, 211, 238, 0.25)',
               borderRadius: '8px',
               padding: '24px',
               width: '440px',
+              maxWidth: '92vw',
+              boxShadow: '0 20px 45px -8px rgba(0, 0, 0, 0.85)',
+              zIndex: 1001,
+              boxSizing: 'border-box',
             }}
           >
-            <h3 style={{ margin: '0 0 14px 0', fontSize: '15px', fontWeight: 600 }}>Mark Plan as User-Reported Applied</h3>
+            <h3 style={{ margin: '0 0 14px 0', fontSize: '15px', fontWeight: 600, color: '#f8fafc' }}>Mark Plan as User-Reported Applied</h3>
             <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 12px 0' }}>
               Confirm that configuration changes were manually applied on the target mail server. This moves the plan to <strong>AWAITING_VERIFICATION</strong>.
             </p>
@@ -1608,10 +1659,12 @@ export const RemediationPage: React.FC = () => {
                   width: '100%',
                   padding: '6px 8px',
                   borderRadius: '4px',
-                  background: 'var(--bg-surface)',
-                  border: '1px solid var(--border-subtle)',
-                  color: 'var(--text-main)',
+                  background: '#081522',
+                  border: '1px solid rgba(34, 211, 238, 0.25)',
+                  color: '#e5edf7',
                   fontSize: '12px',
+                  boxSizing: 'border-box',
+                  outline: 'none',
                 }}
               />
             </div>
@@ -1653,29 +1706,44 @@ export const RemediationPage: React.FC = () => {
       {/* Modal: Verify Plan */}
       {showVerifyModal && (
         <div
+          className="modal-backdrop-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowVerifyModal(false);
+          }}
           style={{
             position: 'fixed',
+            inset: 0,
             top: 0,
             left: 0,
             right: 0,
             bottom: 0,
-            background: 'rgba(0, 0, 0, 0.7)',
+            width: '100vw',
+            height: '100vh',
+            background: 'rgba(0, 3, 9, 0.85)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 1000,
+            boxSizing: 'border-box',
           }}
         >
           <div
+            className="modal-dialog-card"
             style={{
-              background: 'var(--bg-card)',
-              border: '1px solid var(--border-subtle)',
+              background: '#0b1322',
+              border: '1px solid rgba(34, 211, 238, 0.25)',
               borderRadius: '8px',
               padding: '24px',
               width: '460px',
+              maxWidth: '92vw',
+              boxShadow: '0 20px 45px -8px rgba(0, 0, 0, 0.85)',
+              zIndex: 1001,
+              boxSizing: 'border-box',
             }}
           >
-            <h3 style={{ margin: '0 0 14px 0', fontSize: '15px', fontWeight: 600 }}>Verify Remediation Against Forensic Evidence</h3>
+            <h3 style={{ margin: '0 0 14px 0', fontSize: '15px', fontWeight: 600, color: '#f8fafc' }}>Verify Remediation Against Forensic Evidence</h3>
             <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 12px 0' }}>
               Compare prior findings against newly observed scan or packet evidence.
             </p>
@@ -1692,10 +1760,12 @@ export const RemediationPage: React.FC = () => {
                   width: '100%',
                   padding: '6px 8px',
                   borderRadius: '4px',
-                  background: 'var(--bg-surface)',
-                  border: '1px solid var(--border-subtle)',
-                  color: 'var(--text-main)',
+                  background: '#081522',
+                  border: '1px solid rgba(34, 211, 238, 0.25)',
+                  color: '#e5edf7',
                   fontSize: '12px',
+                  boxSizing: 'border-box',
+                  outline: 'none',
                 }}
               />
             </div>

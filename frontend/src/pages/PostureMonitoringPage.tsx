@@ -94,6 +94,19 @@ export const PostureMonitoringPage: React.FC = () => {
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'targets' | 'snapshots' | 'drift'>('targets');
 
+  // Keyboard accessibility: ESC closes modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showAddModal) {
+        setShowAddModal(false);
+      }
+    };
+    if (showAddModal) {
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showAddModal]);
+
   // Form State
   const [formData, setFormData] = useState({
     display_name: '',
@@ -485,15 +498,17 @@ export const PostureMonitoringPage: React.FC = () => {
               onChange={(e) => setSelectedTargetId(e.target.value)}
               style={{
                 padding: '6px 12px',
-                background: 'var(--bg-card)',
-                border: '1px solid var(--border-color)',
+                background: '#081522',
+                border: '1px solid rgba(34, 211, 238, 0.25)',
                 borderRadius: '6px',
-                color: 'var(--text-primary)',
+                color: '#e5edf7',
                 fontSize: '12px',
+                colorScheme: 'dark',
+                outline: 'none',
               }}
             >
               {targets.map((t) => (
-                <option key={t.target_id} value={t.target_id}>
+                <option key={t.target_id} value={t.target_id} style={{ background: '#081522', color: '#e5edf7' }}>
                   {t.display_name} ({t.hostname}:{t.port})
                 </option>
               ))}
@@ -642,9 +657,48 @@ export const PostureMonitoringPage: React.FC = () => {
 
       {/* Target Registration Modal */}
       {showAddModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '24px', width: '460px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0 }}>Register Monitored Mail Target</h2>
+        <div
+          className="modal-backdrop-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowAddModal(false);
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            width: '100vw',
+            height: '100vh',
+            background: 'rgba(0, 3, 9, 0.85)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            boxSizing: 'border-box',
+          }}
+        >
+          <div
+            className="modal-dialog-card"
+            style={{
+              background: '#0b1322',
+              border: '1px solid rgba(34, 211, 238, 0.25)',
+              borderRadius: '8px',
+              padding: '24px',
+              width: '460px',
+              maxWidth: '92vw',
+              boxShadow: '0 20px 45px -8px rgba(0, 0, 0, 0.85)',
+              zIndex: 1001,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+              boxSizing: 'border-box',
+            }}
+          >
+            <h2 style={{ fontSize: '16px', fontWeight: 700, margin: 0, color: '#f8fafc' }}>Register Monitored Mail Target</h2>
             <form onSubmit={handleCreateTarget} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>Display Name</label>
@@ -654,7 +708,7 @@ export const PostureMonitoringPage: React.FC = () => {
                   value={formData.display_name}
                   onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
                   placeholder="Primary Inbound MX"
-                  style={{ width: '100%', padding: '8px', background: 'var(--bg-card-secondary)', border: '1px solid var(--border-color)', borderRadius: '4px', color: 'var(--text-primary)', boxSizing: 'border-box' }}
+                  style={{ width: '100%', padding: '8px', background: '#081522', border: '1px solid rgba(34, 211, 238, 0.25)', borderRadius: '4px', color: '#e5edf7', boxSizing: 'border-box', outline: 'none' }}
                 />
               </div>
 
@@ -666,7 +720,7 @@ export const PostureMonitoringPage: React.FC = () => {
                   value={formData.hostname}
                   onChange={(e) => setFormData({ ...formData, hostname: e.target.value })}
                   placeholder="mail.example.com"
-                  style={{ width: '100%', padding: '8px', background: 'var(--bg-card-secondary)', border: '1px solid var(--border-color)', borderRadius: '4px', color: 'var(--text-primary)', boxSizing: 'border-box' }}
+                  style={{ width: '100%', padding: '8px', background: '#081522', border: '1px solid rgba(34, 211, 238, 0.25)', borderRadius: '4px', color: '#e5edf7', boxSizing: 'border-box', outline: 'none' }}
                 />
               </div>
 
@@ -676,15 +730,24 @@ export const PostureMonitoringPage: React.FC = () => {
                   <select
                     value={formData.port}
                     onChange={(e) => setFormData({ ...formData, port: parseInt(e.target.value) })}
-                    style={{ width: '100%', padding: '8px', background: 'var(--bg-card-secondary)', border: '1px solid var(--border-color)', borderRadius: '4px', color: 'var(--text-primary)' }}
+                    style={{
+                      width: '100%',
+                      padding: '8px',
+                      background: '#081522',
+                      border: '1px solid rgba(34, 211, 238, 0.25)',
+                      borderRadius: '4px',
+                      color: '#e5edf7',
+                      colorScheme: 'dark',
+                      outline: 'none',
+                    }}
                   >
-                    <option value={25}>25 (SMTP Plain/STARTTLS)</option>
-                    <option value={465}>465 (SMTP Direct TLS)</option>
-                    <option value={587}>587 (SMTP Submission)</option>
-                    <option value={143}>143 (IMAP STARTTLS)</option>
-                    <option value={993}>993 (IMAP Direct TLS)</option>
-                    <option value={110}>110 (POP3 STARTTLS)</option>
-                    <option value={995}>995 (POP3 Direct TLS)</option>
+                    <option value={25} style={{ background: '#081522', color: '#e5edf7' }}>25 (SMTP Plain/STARTTLS)</option>
+                    <option value={465} style={{ background: '#081522', color: '#e5edf7' }}>465 (SMTP Direct TLS)</option>
+                    <option value={587} style={{ background: '#081522', color: '#e5edf7' }}>587 (SMTP Submission)</option>
+                    <option value={143} style={{ background: '#081522', color: '#e5edf7' }}>143 (IMAP STARTTLS)</option>
+                    <option value={993} style={{ background: '#081522', color: '#e5edf7' }}>993 (IMAP Direct TLS)</option>
+                    <option value={110} style={{ background: '#081522', color: '#e5edf7' }}>110 (POP3 STARTTLS)</option>
+                    <option value={995} style={{ background: '#081522', color: '#e5edf7' }}>995 (POP3 Direct TLS)</option>
                   </select>
                 </div>
 
@@ -693,12 +756,21 @@ export const PostureMonitoringPage: React.FC = () => {
                   <select
                     value={formData.schedule_type}
                     onChange={(e) => setFormData({ ...formData, schedule_type: e.target.value })}
-                    style={{ width: '100%', padding: '8px', background: 'var(--bg-card-secondary)', border: '1px solid var(--border-color)', borderRadius: '4px', color: 'var(--text-primary)' }}
+                    style={{
+                      width: '100%',
+                      padding: '8px',
+                      background: '#081522',
+                      border: '1px solid rgba(34, 211, 238, 0.25)',
+                      borderRadius: '4px',
+                      color: '#e5edf7',
+                      colorScheme: 'dark',
+                      outline: 'none',
+                    }}
                   >
-                    <option value="MANUAL">Manual On-Demand</option>
-                    <option value="HOURLY">Hourly Local</option>
-                    <option value="DAILY">Daily Local</option>
-                    <option value="WEEKLY">Weekly Local</option>
+                    <option value="MANUAL" style={{ background: '#081522', color: '#e5edf7' }}>Manual On-Demand</option>
+                    <option value="HOURLY" style={{ background: '#081522', color: '#e5edf7' }}>Hourly Local</option>
+                    <option value="DAILY" style={{ background: '#081522', color: '#e5edf7' }}>Daily Local</option>
+                    <option value="WEEKLY" style={{ background: '#081522', color: '#e5edf7' }}>Weekly Local</option>
                   </select>
                 </div>
               </div>
@@ -707,7 +779,7 @@ export const PostureMonitoringPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  style={{ padding: '8px 14px', background: 'none', border: '1px solid var(--border-color)', borderRadius: '4px', color: 'var(--text-primary)', cursor: 'pointer' }}
+                  style={{ padding: '8px 14px', background: 'transparent', border: '1px solid var(--border-subtle)', borderRadius: '4px', color: 'var(--text-muted)', cursor: 'pointer' }}
                 >
                   Cancel
                 </button>
