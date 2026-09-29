@@ -57,23 +57,24 @@
 ## ⚡ Key Features
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                   FEATURE MATRIX OVERVIEW                                        │
-├──────────────────────────────┬───────────────────────────────┬───────────────────────────────────┤
-│ 📨 Passive Protocol Dissection│ 🔐 Cryptographic Deep Audit   │ 🤖 Explainable AI & ML Triage     │
-│  • SMTP (Port 25, 465, 587)  │  • TLS 1.3 / 1.2 / 1.1 / 1.0  │  • Cryptographic Posture Index   │
-│  • IMAP (Port 143, 993)      │  • 300+ IANA Cipher Suites    │  • Sub-Score Breakdown Matrix     │
-│  • POP3 / STLS (Port 110, 995│  • Perfect Forward Secrecy    │  • Evidence-Bounded Confidence    │
+┌──────────────────────────────┬───────────────────────────────┬───────────────────────────────────┐
+│  PASSIVE PROTOCOL DISSECTION │  CRYPTOGRAPHIC DEEP AUDIT     │  EXPLAINABLE AI & ML TRIAGE       │
 ├──────────────────────────────┼───────────────────────────────┼───────────────────────────────────┤
-│ ⚛️ Post-Quantum Readiness     │ 🔗 Tamper-Proof Chain Custody │ 🔄 Posture Drift & Alerting       │
-│  • HNDL Quantum Exposure     │  • SHA-256 Merkle Trees       │  • Continuous Baseline Pinning    │
-│  • Hybrid PQC (ML-KEM-768)   │  • Asymmetric Ed25519 Signoff │  • Regression & Upgrade Detection │
-│  • 7-Phase Transition Roadmaps│ • Multi-Analyst M-of-N Quorum│  • Syslog, CEF & Webhook Alerts   │
+│ • SMTP (Port 25, 465, 587)   │ • TLS 1.3 / 1.2 / 1.1 / 1.0   │ • Cryptographic Posture Index     │
+│ • IMAP (Port 143, 993)       │ • 300+ IANA Cipher Suites     │ • Sub-Score Breakdown Matrix      │
+│ • POP3 / STLS (Port 110, 995)│ • Perfect Forward Secrecy     │ • Evidence-Bounded Confidence     │
 ├──────────────────────────────┼───────────────────────────────┼───────────────────────────────────┤
-│ 🛠️ Remediation Playbooks      │ 🔍 Deep Packet Explorer       │ 📄 Forensic Audit Reports         │
-│  • Postfix, Exim, Dovecot    │  • Native Wireshark Frames    │  • Cryptographic PDF Generation   │
-│  • In-Memory Risk Simulation │  • Hex & ASCII Stream View    │  • Executive & Judge Summaries    │
-│  • Verify-After-Fix Engine   │  • BPF Filter Engine          │  • Merkle Proof Verification Badge│
+│  POST-QUANTUM READINESS      │  TAMPER-PROOF CHAIN CUSTODY   │  POSTURE DRIFT & ALERTING         │
+├──────────────────────────────┼───────────────────────────────┼───────────────────────────────────┤
+│ • HNDL Quantum Exposure      │ • SHA-256 Merkle Trees        │ • Continuous Baseline Pinning     │
+│ • Hybrid PQC (ML-KEM-768)    │ • Asymmetric Ed25519 Signoff  │ • Regression & Upgrade Detection  │
+│ • 7-Phase Transition Roadmaps│ • Multi-Analyst M-of-N Quorum │ • Syslog, CEF & Webhook Alerts    │
+├──────────────────────────────┼───────────────────────────────┼───────────────────────────────────┤
+│  REMEDIATION PLAYBOOKS       │  DEEP PACKET EXPLORER         │  FORENSIC AUDIT REPORTS           │
+├──────────────────────────────┼───────────────────────────────┼───────────────────────────────────┤
+│ • Postfix, Exim, Dovecot     │ • Native Wireshark Frames     │ • Cryptographic PDF Generation    │
+│ • In-Memory Risk Simulation  │ • Hex & ASCII Stream View     │ • Executive & Judge Summaries     │
+│ • Verify-After-Fix Engine    │ • BPF Filter Engine           │ • Merkle Proof Verification Badge │
 └──────────────────────────────┴───────────────────────────────┴───────────────────────────────────┘
 ```
 
@@ -180,12 +181,10 @@ Rather than generating black-box confidence scores, SecureMailScope X calculates
 $$\text{CSPI} = \omega_p \cdot S_{\text{protocol}} + \omega_c \cdot S_{\text{crypto}} + \omega_h \cdot S_{\text{cert}} + \omega_f \cdot S_{\text{pfs}} - \sum \text{Deductions}_{\text{risk}}$$
 
 ```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                     CSPI EXPLAINABLE SCORING BREAKDOWN MATRIX                          │
-├──────────────────────────┬────────┬─────────────────────────┬──────────────────────────┤
+┌──────────────────────────┬────────┬─────────────────────────┬──────────────────────────┐
 │ Dimension                │ Weight │ Evaluation Metrics      │ Target Criteria          │
 ├──────────────────────────┼────────┼─────────────────────────┼──────────────────────────┤
-│ 1. Protocol Security     │  30%   │ STARTTLS vs Direct TLS  │ Mandatory TLS, No Stripping
+│ 1. Protocol Security     │  30%   │ STARTTLS vs Direct TLS  │ Mandatory TLS, No Strip  │
 │ 2. Cryptographic Strength│  35%   │ Cipher, TLS Version     │ TLS 1.3 / AES-256-GCM    │
 │ 3. Certificate Hygiene   │  15%   │ SAN, Expiry, Key Length │ Valid Root CA, 2048+ RSA │
 │ 4. Forward Secrecy (PFS) │  20%   │ Ephemeral Key Exchange  │ ECDHE (X25519 / P-384)   │
@@ -284,7 +283,7 @@ SecureMailScope X does not just identify vulnerabilities—it provides verified,
               ▼
    [ADVISORY PLAYBOOK GENERATED]
    ┌────────────────────────────────────────────────────────────────────────┐
-   │ # Postfix Hardening Configuration (/etc/postfix/main.cf)              │
+   │ # Postfix Hardening Configuration (/etc/postfix/main.cf)               │
    │ smtpd_tls_security_level = encrypt                                    │
    │ smtpd_tls_mandatory_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1     │
    │ smtpd_tls_mandatory_ciphers = high                                    │
@@ -448,7 +447,7 @@ The backend exposes strongly typed REST endpoints documented via OpenAPI 3.1:
 │ POST   │ /api/v1/rbac/reviews                  │ Submit Ed25519/RSA-PSS M-of-N sign-off     │
 │ GET    │ /api/v1/pqc/roadmaps/{id}             │ Generate NIST PQC 7-phase transition plan  │
 │ GET    │ /api/v1/remediation/playbooks         │ Fetch Postfix/Exim/Dovecot playbooks       │
-│ POST   │ /api/v1/remediation/simulate         │ In-memory what-if risk posture projection  │
+│ POST   │ /api/v1/remediation/simulate          │ In-memory what-if risk posture projection  │
 │ POST   │ /api/v1/monitoring/scan               │ Execute active scan with DNS/SSRF defense  │
 │ POST   │ /api/v1/siem/export                   │ Export telemetry in CEF, Syslog, or JSON   │
 │ GET    │ /api/v1/reports/{id}/pdf              │ Download cryptographic PDF audit report    │
