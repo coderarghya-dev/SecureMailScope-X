@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Shield,
@@ -7,7 +7,6 @@ import {
   AlertTriangle,
   FileCheck2,
   UploadCloud,
-  CheckCircle2,
   ArrowRight,
   Sparkles,
   FileCode2,
@@ -22,9 +21,7 @@ import { InvestigationTimeline } from '../components/dashboard/InvestigationTime
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [dragOver, setDragOver] = useState(false);
-  const { currentAnalysis, analyses, isAnalyzing, analyzeFile } = useAnalysisStore();
+  const { currentAnalysis, analyses, isAnalyzing } = useAnalysisStore();
   const { health } = useHealthStore();
 
   const streams = currentAnalysis?.streams || [];
@@ -92,30 +89,6 @@ export const DashboardPage: React.FC = () => {
       case 'D': return '#fbbf24';
       case 'F': return '#f87171';
       default: return '#64748b';
-    }
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const file = e.target.files[0];
-      try {
-        await analyzeFile(file);
-      } catch {
-        // Handled in store
-      }
-    }
-  };
-
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      try {
-        await analyzeFile(file);
-      } catch {
-        // Handled in store
-      }
     }
   };
 
@@ -421,7 +394,7 @@ export const DashboardPage: React.FC = () => {
             Your analyst workspace is isolated and empty. Upload a packet capture (.pcap, .pcapng, .cap) to reconstruct email sessions, audit TLS handshakes, and verify post-quantum readiness.
           </div>
           <button
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => navigate('/analyze')}
             className="btn-primary"
             style={{
               display: 'inline-flex',
@@ -439,7 +412,6 @@ export const DashboardPage: React.FC = () => {
           </button>
         </div>
       )}
-
 
       {/* 12-Column Grid Workspace (Left 8 cols, Right 4 cols) */}
       <div className="grid-12col-workspace">
@@ -503,7 +475,10 @@ export const DashboardPage: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
 
+        {/* RIGHT COLUMN: 4 Columns (~33%) */}
+        <div className="grid-col-4">
           {/* Recent PCAP Investigations */}
           <div className="forensic-panel">
             <div className="forensic-panel-header">
@@ -583,53 +558,6 @@ export const DashboardPage: React.FC = () => {
                 </div>
               </div>
             )}
-          </div>
-        </div>
-
-        {/* RIGHT COLUMN: 4 Columns (~33%) */}
-        <div className="grid-col-4">
-          {/* Ingest Capture File */}
-          <div className="forensic-panel">
-            <div className="forensic-panel-header">
-              <div className="forensic-panel-title">
-                <UploadCloud size={13} color="#06b6d4" />
-                <span>INGEST CAPTURE FILE</span>
-              </div>
-              <span className="badge badge-cyan">100 MB Limit</span>
-            </div>
-            <div className="forensic-panel-subtitle" style={{ marginBottom: '10px' }}>
-              Passive capture intake &amp; automated stream indexing
-            </div>
-
-            {/* Dropzone Intake Workstation */}
-            <div
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className="dropzone-box"
-              style={{ borderColor: dragOver ? '#06b6d4' : undefined }}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".pcap,.pcapng,.cap"
-                onChange={handleFileChange}
-                style={{ display: 'none' }}
-              />
-              <UploadCloud size={24} color="#06b6d4" style={{ marginBottom: '6px' }} />
-              <div style={{ fontSize: '12px', fontWeight: 600, color: '#f8fafc' }}>
-                {isAnalyzing ? 'Dissecting Packet Capture...' : 'Open Ingestion Cockpit'}
-              </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                Click to inspect or drag network capture
-              </div>
-              <div className="format-chips-row">
-                <span className="format-chip">.PCAP</span>
-                <span className="format-chip">.PCAPNG</span>
-                <span className="format-chip">.CAP</span>
-              </div>
-            </div>
           </div>
 
           {/* Engine Capabilities — Authentic State Bound */}
