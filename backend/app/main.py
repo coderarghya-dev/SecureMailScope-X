@@ -97,19 +97,14 @@ def root():
 
 @app.get("/health", tags=["Root"])
 def root_health():
+    """
+    Fast, reliable root health endpoint for Render and orchestrator probes.
+    Preserves existing public health schema with bounded database probe timeout.
+    """
     from app.core.tshark_detector import TSharkDetector
-    from app.db.database import get_database_engine_type, get_db_connection
-    tshark_ok, tshark_ver = TSharkDetector.get_version()
-    db_engine = get_database_engine_type().lower()
-    db_ok = True
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT 1;")
-        cur.fetchone()
-        conn.close()
-    except Exception:
-        db_ok = False
+    from app.db.database import check_db_connectivity
+    tshark_ok, _ = TSharkDetector.get_version()
+    db_ok, db_engine = check_db_connectivity(timeout_seconds=1.5)
 
     return {
         "status": "healthy" if (tshark_ok and db_ok) else "degraded",
@@ -121,6 +116,41 @@ def root_health():
     }
 
 
+@app.get("/health/live", tags=["Root"])
+@app.get("/live", tags=["Root"])
+def root_liveness():
+    """
+    Ultra-lightweight, non-blocking process liveness probe for container orchestrators.
+    Returns HTTP 200 instantaneously without touching databases or external binaries.
+    """
+    return {
+        "status": "alive",
+        "service": API_TITLE,
+        "version": API_VERSION
+    }
+
+
+@app.get("/health/ready", tags=["Root"])
+@app.get("/ready", tags=["Root"])
+def root_readiness():
+    """
+    Readiness probe checking database connectivity and core service availability.
+    """
+    from app.core.tshark_detector import TSharkDetector
+    from app.db.database import check_db_connectivity
+    db_ok, db_engine = check_db_connectivity(timeout_seconds=2.0)
+    tshark_ok, _ = TSharkDetector.get_version()
+
+    return {
+        "status": "ready" if db_ok else "degraded",
+        "database_connected": db_ok,
+        "database_engine": db_engine,
+        "tshark_available": tshark_ok,
+        "version": API_VERSION
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
+

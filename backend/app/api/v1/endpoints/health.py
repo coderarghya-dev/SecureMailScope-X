@@ -4,7 +4,9 @@ SecureMailScope X - Health & System Diagnostics Endpoint
 
 from fastapi import APIRouter
 from app.core.tshark_detector import TSharkDetector
+from app.core.config import API_TITLE, API_VERSION
 from app.schemas.api import HealthResponse
+from app.db.database import check_db_connectivity
 
 router = APIRouter()
 
@@ -17,20 +19,7 @@ router = APIRouter()
 )
 def get_health() -> HealthResponse:
     tshark_ok, tshark_info = TSharkDetector.get_version()
-    
-    # Check database connectivity safely
-    db_ok = True
-    db_engine = "sqlite"
-    try:
-        from app.db.database import get_db_connection, get_database_engine_type
-        db_engine = get_database_engine_type().lower()
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT 1;")
-        cur.fetchone()
-        conn.close()
-    except Exception:
-        db_ok = False
+    db_ok, db_engine = check_db_connectivity(timeout_seconds=2.0)
 
     status_str = "healthy" if (tshark_ok and db_ok) else ("degraded" if db_ok else "unhealthy")
     
@@ -47,27 +36,36 @@ def get_health() -> HealthResponse:
 
 
 @router.get(
+    "/health/live",
+    summary="Lightweight Liveness Probe",
+    description="Returns HTTP 200 immediately if process is alive."
+)
+def get_liveness():
+    return {
+        "status": "alive",
+        "service": API_TITLE,
+        "version": API_VERSION
+    }
+
+
+@router.get(
+    "/health/ready",
+    summary="Readiness Probe",
+    description="Returns readiness status and database connection state."
+)
+@router.get(
     "/readiness",
     summary="System Diagnostic & Database Readiness Probe",
     description="Returns backend readiness status, database connectivity, and subsystem integrity."
 )
 def get_readiness():
-    try:
-        from app.db.database import get_db_connection
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1;")
-        cursor.fetchone()
-        conn.close()
-        db_ok = True
-    except Exception:
-        db_ok = False
-
+    db_ok, db_engine = check_db_connectivity(timeout_seconds=2.0)
     tshark_ok, _ = TSharkDetector.get_version()
 
     return {
         "status": "ready" if db_ok else "unready",
         "database_connected": db_ok,
+        "database_engine": db_engine,
         "tshark_available": tshark_ok,
         "subsystems": {
             "forensic_engine": True,
@@ -79,4 +77,5 @@ def get_readiness():
             "chain_of_custody": True,
         }
     }
+
 

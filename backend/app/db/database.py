@@ -249,8 +249,8 @@ class PostgresConnectionWrapper:
         self.close()
 
 
-def _get_postgres_dsn() -> str:
-    """Retrieves and normalizes DATABASE_URL for psycopg connection with SSL support."""
+def _get_postgres_dsn(timeout_seconds: Optional[float] = None) -> str:
+    """Retrieves and normalizes DATABASE_URL for psycopg connection with SSL support and connect_timeout."""
     db_url = os.environ.get("DATABASE_URL", "").strip()
     if db_url.startswith("postgresql+psycopg://"):
         db_url = db_url.replace("postgresql+psycopg://", "postgresql://", 1)
@@ -260,7 +260,44 @@ def _get_postgres_dsn() -> str:
         separator = "&" if "?" in db_url else "?"
         db_url = f"{db_url}{separator}sslmode=require"
     
+    if "connect_timeout=" not in db_url:
+        t = int(timeout_seconds) if timeout_seconds else 5
+        separator = "&" if "?" in db_url else "?"
+        db_url = f"{db_url}{separator}connect_timeout={t}"
+    
     return db_url
+
+
+def check_db_connectivity(timeout_seconds: float = 2.0) -> Tuple[bool, str]:
+    """
+    Safely and quickly checks database connectivity with a strict bounded timeout.
+    Returns (is_connected, engine_type_str).
+    Never raises an exception and never blocks past timeout_seconds.
+    """
+    engine_type = get_database_engine_type().lower()
+    try:
+        if engine_type == "postgresql":
+            import psycopg
+            dsn = _get_postgres_dsn(timeout_seconds=timeout_seconds)
+            with psycopg.connect(dsn, autocommit=False, connect_timeout=int(max(1, timeout_seconds))) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1;")
+                    cur.fetchone()
+            return True, engine_type
+        else:
+            # SQLite mode
+            target_path = get_db_path()
+            conn = sqlite3.connect(target_path, timeout=timeout_seconds, check_same_thread=False)
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT 1;")
+                cur.fetchone()
+            finally:
+                conn.close()
+            return True, engine_type
+    except Exception as e:
+        logger.warning("Database connectivity check failed (%s): %s", engine_type, e)
+        return False, engine_type
 
 
 def get_db_connection(db_path: Optional[str] = None):
@@ -1890,16 +1927,23 @@ def _init_postgres_schema(conn: PostgresConnectionWrapper):
 
 def init_db(db_path: Optional[str] = None):
     """Initializes all required database schemas deterministically for active engine (SQLite or PostgreSQL)."""
-    conn = get_db_connection(db_path)
-    engine_type = get_database_engine_type(db_path)
+    try:
+        conn = get_db_connection(db_path)
+        engine_type = get_database_engine_type(db_path)
 
-    if engine_type == "POSTGRESQL":
-        _init_postgres_schema(conn)
-    else:
-        _init_sqlite_schema(conn)
+        if engine_type == "POSTGRESQL":
+            _init_postgres_schema(conn)
+        else:
+            _init_sqlite_schema(conn)
 
-    conn.close()
+        conn.close()
+    except Exception as e:
+        logger.warning("Database schema initialization warning: %s", e)
 
 
-# Initialize database schemas on module import
-init_db()
+# Initialize database schemas on module import (safely caught so import never crashes)
+try:
+    init_db()
+except Exception as _e:
+    logger.warning("Initial init_db on import warning: %s", _e)
+
