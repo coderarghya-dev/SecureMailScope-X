@@ -29,46 +29,33 @@ const FORENSIC_PROCESSING_STAGES = [
   { label: 'Finalizing forensic results...', code: 'FINALIZE' },
 ];
 
+const STAGE_INTERVAL_MS = 4200; // ~4.2s per stage so analysts can read each forensic milestone
+
 export const AnalyzePage: React.FC = () => {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [stageIndex, setStageIndex] = useState(0);
+  const [isStagedProcessing, setIsStagedProcessing] = useState(false);
   const [isSuccessComplete, setIsSuccessComplete] = useState(false);
+  const abortControllerRef = useRef<boolean>(false);
 
   const { analyzeFile, isAnalyzing, error, analyses, clearError } = useAnalysisStore();
   const { isOnline, health } = useHealthStore();
 
+  const isProcessingActive = isAnalyzing || isStagedProcessing;
+
   useEffect(() => {
     // Clear any stale errors on component mount
     clearError();
+    return () => {
+      abortControllerRef.current = true;
+    };
   }, [clearError]);
 
-  // Rotate through processing stages while isAnalyzing is true
-  useEffect(() => {
-    let timer: any = null;
-    if (isAnalyzing) {
-      setStageIndex(0);
-      setIsSuccessComplete(false);
-      timer = setInterval(() => {
-        setStageIndex((prev) => {
-          if (prev < FORENSIC_PROCESSING_STAGES.length - 1) {
-            return prev + 1;
-          }
-          return prev;
-        });
-      }, 1300);
-    } else {
-      setStageIndex(0);
-    }
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [isAnalyzing]);
-
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (isAnalyzing) return;
+    if (isProcessingActive) return;
     clearError();
     if (e.target.files && e.target.files.length > 0) {
       setSelectedFile(e.target.files[0]);
@@ -78,7 +65,7 @@ export const AnalyzePage: React.FC = () => {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    if (isAnalyzing) return;
+    if (isProcessingActive) return;
     clearError();
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       setSelectedFile(e.dataTransfer.files[0]);
@@ -87,7 +74,7 @@ export const AnalyzePage: React.FC = () => {
 
   const handleClearFile = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isAnalyzing) return;
+    if (isProcessingActive) return;
     setSelectedFile(null);
     clearError();
     if (fileInputRef.current) {
@@ -96,17 +83,64 @@ export const AnalyzePage: React.FC = () => {
   };
 
   const handleStartAnalysis = async () => {
-    if (!selectedFile || isAnalyzing) return;
+    if (!selectedFile || isProcessingActive) return;
+    clearError();
+    setIsStagedProcessing(true);
+    setStageIndex(0);
+    setIsSuccessComplete(false);
+    abortControllerRef.current = false;
+
+    // Launch real backend analysis in background
+    let apiErrorOccurred = false;
+    const apiPromise = analyzeFile(selectedFile).catch((err) => {
+      apiErrorOccurred = true;
+      abortControllerRef.current = true;
+      setIsStagedProcessing(false);
+      setStageIndex(0);
+      setIsSuccessComplete(false);
+      throw err;
+    });
+
     try {
-      await analyzeFile(selectedFile);
+      // Step through stages 0 to 6 with ~4.2s per stage
+      for (let i = 0; i < FORENSIC_PROCESSING_STAGES.length - 1; i++) {
+        if (abortControllerRef.current || apiErrorOccurred) {
+          setIsStagedProcessing(false);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, STAGE_INTERVAL_MS));
+        if (abortControllerRef.current || apiErrorOccurred) {
+          setIsStagedProcessing(false);
+          return;
+        }
+        setStageIndex(i + 1);
+      }
+
+      // Reached stage index 7: "Finalizing forensic results..."
+      // Await real backend API promise (if finished early, resolves instantly; if running, waits here)
+      await apiPromise;
+
+      if (abortControllerRef.current || apiErrorOccurred) {
+        setIsStagedProcessing(false);
+        return;
+      }
+
+      // Hold on stage 08 finalizing state briefly for smooth transition
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      if (abortControllerRef.current) return;
+
+      setIsStagedProcessing(false);
       setIsSuccessComplete(true);
-      // Brief completion confirmation before smooth transition to dashboard
+
+      // Brief completion confirmation before navigating to dashboard
       setTimeout(() => {
         navigate('/dashboard');
-      }, 700);
+      }, 900);
     } catch {
+      setIsStagedProcessing(false);
       setIsSuccessComplete(false);
-      // Errors handled cleanly in store
+      setStageIndex(0);
     }
   };
 
@@ -116,7 +150,7 @@ export const AnalyzePage: React.FC = () => {
     : '';
   const isValidFormat = ['.pcap', '.pcapng', '.cap'].includes(fileExtension);
   const isSizeValid = selectedFile ? selectedFile.size <= 100 * 1024 * 1024 : false;
-  const canStartAnalysis = Boolean(selectedFile && isValidFormat && isSizeValid && !isAnalyzing && isOnline);
+  const canStartAnalysis = Boolean(selectedFile && isValidFormat && isSizeValid && !isProcessingActive && isOnline);
 
   const getFormatName = (ext: string) => {
     switch (ext) {
@@ -190,24 +224,24 @@ export const AnalyzePage: React.FC = () => {
 
       {/* 2. Analysis Flow Strip (Workflow Guide) */}
       <div className="evidence-flow-strip">
-        <div className={`evidence-flow-step ${isAnalyzing && stageIndex <= 1 ? 'active' : ''}`}>
+        <div className={`evidence-flow-step ${isProcessingActive && stageIndex <= 1 ? 'active' : ''}`}>
           <span className="evidence-flow-num">01</span>
-          <span style={{ fontWeight: isAnalyzing && stageIndex <= 1 ? 600 : 500, color: isAnalyzing && stageIndex <= 1 ? 'var(--text-cyan)' : '#f1f5f9' }}>Capture Intake</span>
+          <span style={{ fontWeight: isProcessingActive && stageIndex <= 1 ? 600 : 500, color: isProcessingActive && stageIndex <= 1 ? 'var(--text-cyan)' : '#f1f5f9' }}>Capture Intake</span>
         </div>
         <span className="evidence-flow-arrow">→</span>
-        <div className={`evidence-flow-step ${isAnalyzing && stageIndex > 1 && stageIndex <= 3 ? 'active' : ''}`}>
+        <div className={`evidence-flow-step ${isProcessingActive && stageIndex > 1 && stageIndex <= 3 ? 'active' : ''}`}>
           <span className="evidence-flow-num">02</span>
-          <span style={{ fontWeight: isAnalyzing && stageIndex > 1 && stageIndex <= 3 ? 600 : 500, color: isAnalyzing && stageIndex > 1 && stageIndex <= 3 ? 'var(--text-cyan)' : undefined }}>Integrity &amp; Stream Demux</span>
+          <span style={{ fontWeight: isProcessingActive && stageIndex > 1 && stageIndex <= 3 ? 600 : 500, color: isProcessingActive && stageIndex > 1 && stageIndex <= 3 ? 'var(--text-cyan)' : undefined }}>Integrity &amp; Stream Demux</span>
         </div>
         <span className="evidence-flow-arrow">→</span>
-        <div className={`evidence-flow-step ${isAnalyzing && stageIndex > 3 && stageIndex <= 5 ? 'active' : ''}`}>
+        <div className={`evidence-flow-step ${isProcessingActive && stageIndex > 3 && stageIndex <= 5 ? 'active' : ''}`}>
           <span className="evidence-flow-num">03</span>
-          <span style={{ fontWeight: isAnalyzing && stageIndex > 3 && stageIndex <= 5 ? 600 : 500, color: isAnalyzing && stageIndex > 3 && stageIndex <= 5 ? 'var(--text-cyan)' : undefined }}>Crypto &amp; PQC Analysis</span>
+          <span style={{ fontWeight: isProcessingActive && stageIndex > 3 && stageIndex <= 5 ? 600 : 500, color: isProcessingActive && stageIndex > 3 && stageIndex <= 5 ? 'var(--text-cyan)' : undefined }}>Crypto &amp; PQC Analysis</span>
         </div>
         <span className="evidence-flow-arrow">→</span>
-        <div className={`evidence-flow-step ${isAnalyzing && stageIndex > 5 ? 'active' : ''}`}>
+        <div className={`evidence-flow-step ${isProcessingActive && stageIndex > 5 ? 'active' : ''}`}>
           <span className="evidence-flow-num">04</span>
-          <span style={{ fontWeight: isAnalyzing && stageIndex > 5 ? 600 : 500, color: isAnalyzing && stageIndex > 5 ? 'var(--text-cyan)' : undefined }}>Custody &amp; Results Sealing</span>
+          <span style={{ fontWeight: isProcessingActive && stageIndex > 5 ? 600 : 500, color: isProcessingActive && stageIndex > 5 ? 'var(--text-cyan)' : undefined }}>Custody &amp; Results Sealing</span>
         </div>
       </div>
 
@@ -226,24 +260,24 @@ export const AnalyzePage: React.FC = () => {
                   Passive capture stream indexing &amp; raw frame demuxing
                 </div>
               </div>
-              <span className={`badge ${isAnalyzing ? 'badge-cyan' : isSuccessComplete ? 'badge-emerald' : 'badge-cyan'}`}>
-                {isAnalyzing ? 'DISSECTING' : isSuccessComplete ? 'COMPLETED' : 'PASSIVE INGEST'}
+              <span className={`badge ${isProcessingActive ? 'badge-cyan' : isSuccessComplete ? 'badge-emerald' : 'badge-cyan'}`}>
+                {isProcessingActive ? 'DISSECTING' : isSuccessComplete ? 'COMPLETED' : 'PASSIVE INGEST'}
               </span>
             </div>
 
             {/* Drop Zone with Animated Loading State */}
             <div
-              onDragOver={(e) => { e.preventDefault(); if (!isAnalyzing) setDragOver(true); }}
+              onDragOver={(e) => { e.preventDefault(); if (!isProcessingActive) setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
               onDrop={handleDrop}
-              onClick={() => { if (!isAnalyzing) fileInputRef.current?.click(); }}
+              onClick={() => { if (!isProcessingActive) fileInputRef.current?.click(); }}
               className="dropzone-box"
               style={{
-                borderColor: isAnalyzing ? 'var(--accent-cyan-border)' : dragOver ? '#06b6d4' : undefined,
-                background: isAnalyzing ? 'radial-gradient(ellipse at center, rgba(6, 182, 212, 0.08) 0%, rgba(15, 23, 42, 0.6) 80%)' : undefined,
+                borderColor: isProcessingActive ? 'var(--accent-cyan-border)' : dragOver ? '#06b6d4' : undefined,
+                background: isProcessingActive ? 'radial-gradient(ellipse at center, rgba(6, 182, 212, 0.08) 0%, rgba(15, 23, 42, 0.6) 80%)' : undefined,
                 padding: '24px 16px',
                 minHeight: '160px',
-                cursor: isAnalyzing ? 'wait' : 'pointer',
+                cursor: isProcessingActive ? 'wait' : 'pointer',
                 position: 'relative',
                 overflow: 'hidden',
               }}
@@ -253,11 +287,11 @@ export const AnalyzePage: React.FC = () => {
                 type="file"
                 accept=".pcap,.pcapng,.cap"
                 onChange={handleFileChange}
-                disabled={isAnalyzing}
+                disabled={isProcessingActive}
                 style={{ display: 'none' }}
               />
 
-              {isAnalyzing ? (
+              {isProcessingActive ? (
                 /* Active Forensic Processing Animation */
                 <div
                   style={{
@@ -564,8 +598,8 @@ export const AnalyzePage: React.FC = () => {
                   Engine parameters &amp; execution trigger
                 </div>
               </div>
-              <span className={`badge ${isAnalyzing ? 'badge-cyan' : canStartAnalysis ? 'badge-emerald' : 'badge-gray'}`}>
-                {isAnalyzing ? 'PROCESSING' : canStartAnalysis ? 'READY' : 'STANDBY'}
+              <span className={`badge ${isProcessingActive ? 'badge-cyan' : canStartAnalysis ? 'badge-emerald' : 'badge-gray'}`}>
+                {isProcessingActive ? 'PROCESSING' : canStartAnalysis ? 'READY' : 'STANDBY'}
               </span>
             </div>
 
@@ -614,25 +648,25 @@ export const AnalyzePage: React.FC = () => {
             {/* Start Forensic Analysis Button with Live Status States */}
             <button
               onClick={handleStartAnalysis}
-              disabled={!canStartAnalysis || isAnalyzing}
+              disabled={!canStartAnalysis || isProcessingActive}
               className="btn-primary"
               style={{
                 width: '100%',
                 padding: '9px 14px',
                 justifyContent: 'center',
-                opacity: canStartAnalysis && !isAnalyzing ? 1 : 0.65,
-                cursor: canStartAnalysis && !isAnalyzing ? 'pointer' : 'not-allowed',
+                opacity: canStartAnalysis && !isProcessingActive ? 1 : 0.65,
+                cursor: canStartAnalysis && !isProcessingActive ? 'pointer' : 'not-allowed',
                 background: isSuccessComplete
                   ? 'rgba(34, 197, 94, 0.2)'
-                  : isAnalyzing
+                  : isProcessingActive
                   ? 'rgba(6, 182, 212, 0.2)'
                   : undefined,
                 borderColor: isSuccessComplete
                   ? 'rgba(34, 197, 94, 0.5)'
-                  : isAnalyzing
+                  : isProcessingActive
                   ? 'var(--accent-cyan-border)'
                   : undefined,
-                color: isSuccessComplete ? 'var(--text-emerald)' : isAnalyzing ? 'var(--text-cyan)' : undefined,
+                color: isSuccessComplete ? 'var(--text-emerald)' : isProcessingActive ? 'var(--text-cyan)' : undefined,
                 transition: 'all 0.2s ease',
               }}
             >
@@ -641,7 +675,7 @@ export const AnalyzePage: React.FC = () => {
                   <CheckCircle2 size={14} color="#10b981" />
                   <span>Analysis Complete</span>
                 </>
-              ) : isAnalyzing ? (
+              ) : isProcessingActive ? (
                 <>
                   <Loader2 size={14} className="animate-spin" style={{ animation: 'forensicRingRotate 1.2s linear infinite' }} />
                   <span>Analyzing Capture...</span>
@@ -654,7 +688,7 @@ export const AnalyzePage: React.FC = () => {
               )}
             </button>
             <div style={{ fontSize: '9.5px', color: 'var(--text-muted)', textAlign: 'center', marginTop: '6px' }}>
-              {isAnalyzing
+              {isProcessingActive
                 ? 'Passive dissection in progress — please wait'
                 : isSuccessComplete
                 ? 'Navigating to Forensic Dashboard...'
@@ -690,7 +724,7 @@ export const AnalyzePage: React.FC = () => {
             {analyses.map((a) => (
               <div
                 key={a.analysis_id}
-                onClick={() => { if (!isAnalyzing) navigate('/dashboard'); }}
+                onClick={() => { if (!isProcessingActive) navigate('/dashboard'); }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -699,8 +733,8 @@ export const AnalyzePage: React.FC = () => {
                   borderRadius: 'var(--radius-md)',
                   backgroundColor: 'var(--surface-elevated)',
                   border: '1px solid var(--border-subtle)',
-                  cursor: isAnalyzing ? 'not-allowed' : 'pointer',
-                  opacity: isAnalyzing ? 0.7 : 1,
+                  cursor: isProcessingActive ? 'not-allowed' : 'pointer',
+                  opacity: isProcessingActive ? 0.7 : 1,
                   transition: 'border-color 0.14s ease',
                 }}
               >

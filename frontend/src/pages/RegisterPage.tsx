@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Lock, Mail, User, ArrowRight, AlertCircle, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { Lock, Mail, User, ArrowRight, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { getApiUrl } from '../api/client';
 import { Logo } from '../components/common/Logo';
 import { AuthHero } from '../components/auth/AuthHero';
@@ -69,74 +69,42 @@ export const RegisterPage: React.FC = () => {
 
   return (
     <div className="auth-split-wrapper">
-      {/* Left Side: Cyber-Forensics Hero */}
+      {/* Left 65%: Cinematic Cyber-Forensics Hero Stage */}
       <AuthHero />
 
-      {/* Right Side: Glassmorphism Register Card */}
+      {/* Right 35%: Glassmorphism Registration Panel */}
       <div className="auth-form-section">
-        <div className="auth-glass-card">
+        <div className="auth-glass-card register-card">
           {/* Brand Header */}
-          <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-            <div style={{ marginBottom: '14px', display: 'flex', justifyContent: 'center' }}>
-              <Logo size={70} alt="SecureMailScope X" />
+          <div className="auth-card-header">
+            <div className="auth-card-logo-wrap">
+              <Logo size={95} alt="SecureMailScope X" />
             </div>
 
-            <h2
-              style={{
-                fontSize: '18px',
-                fontWeight: 700,
-                letterSpacing: '-0.01em',
-                color: '#ffffff',
-                fontFamily: 'Inter, sans-serif',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '4px',
-              }}
-            >
+            <h2 className="auth-card-title">
               Analyst Onboarding
             </h2>
 
-            <p
-              style={{
-                fontSize: '12px',
-                color: '#94a3b8',
-                marginTop: '5px',
-                lineHeight: 1.4,
-              }}
-            >
+            <p className="auth-card-subtitle">
               Register secure profile for cryptographic investigations.
             </p>
           </div>
 
           {/* Error Banner */}
           {error && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                backgroundColor: 'rgba(244, 63, 94, 0.12)',
-                border: '1px solid rgba(244, 63, 94, 0.35)',
-                color: '#fb7185',
-                padding: '10px 12px',
-                borderRadius: '8px',
-                fontSize: '11.5px',
-                marginBottom: '16px',
-              }}
-            >
+            <div className="auth-alert-banner error">
               <AlertCircle size={15} style={{ flexShrink: 0 }} />
               <span>{error}</span>
             </div>
           )}
 
           {/* Registration Form */}
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <form onSubmit={handleSubmit} className="auth-card-form register-form">
             <div className="auth-input-group">
               <label className="auth-input-label">Full Name / Call Sign</label>
               <div className="auth-input-container">
                 <div className="auth-input-icon">
-                  <User size={14} />
+                  <User size={15} />
                 </div>
                 <input
                   type="text"
@@ -154,7 +122,7 @@ export const RegisterPage: React.FC = () => {
               <label className="auth-input-label">Analyst Email</label>
               <div className="auth-input-container">
                 <div className="auth-input-icon">
-                  <Mail size={14} />
+                  <Mail size={15} />
                 </div>
                 <input
                   type="email"
@@ -172,7 +140,7 @@ export const RegisterPage: React.FC = () => {
               <label className="auth-input-label">Password (min 6 characters)</label>
               <div className="auth-input-container">
                 <div className="auth-input-icon">
-                  <Lock size={14} />
+                  <Lock size={15} />
                 </div>
                 <input
                   type={showPassword ? 'text' : 'password'}
@@ -190,7 +158,7 @@ export const RegisterPage: React.FC = () => {
                   title={showPassword ? 'Hide password' : 'Show password'}
                   tabIndex={-1}
                 >
-                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
@@ -199,7 +167,7 @@ export const RegisterPage: React.FC = () => {
               <label className="auth-input-label">Confirm Password</label>
               <div className="auth-input-container">
                 <div className="auth-input-icon">
-                  <Lock size={14} />
+                  <Lock size={15} />
                 </div>
                 <input
                   type={showConfirmPassword ? 'text' : 'password'}
@@ -217,7 +185,7 @@ export const RegisterPage: React.FC = () => {
                   title={showConfirmPassword ? 'Hide password' : 'Show password'}
                   tabIndex={-1}
                 >
-                  {showConfirmPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
@@ -232,51 +200,18 @@ export const RegisterPage: React.FC = () => {
               ) : (
                 <>
                   <span>Create Analyst Account</span>
-                  <ArrowRight size={14} />
+                  <ArrowRight size={15} />
                 </>
               )}
             </button>
           </form>
 
           {/* Footer Navigation Link */}
-          <div
-            style={{
-              marginTop: '20px',
-              paddingTop: '16px',
-              borderTop: '1px solid rgba(6, 182, 212, 0.15)',
-              textAlign: 'center',
-              fontSize: '11.5px',
-              color: '#94a3b8',
-            }}
-          >
+          <div className="auth-card-footer">
             Already have credentials?{' '}
-            <Link
-              to="/login"
-              style={{
-                color: '#38bdf8',
-                fontWeight: 600,
-                textDecoration: 'none',
-                marginLeft: '3px',
-              }}
-            >
+            <Link to="/login" className="auth-footer-link">
               Sign In Here
             </Link>
-          </div>
-
-          <div
-            style={{
-              marginTop: '12px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              fontSize: '10px',
-              fontFamily: 'JetBrains Mono, monospace',
-              color: '#64748b',
-            }}
-          >
-            <ShieldCheck size={11} color="#06b6d4" />
-            <span>Encrypted Credential Storage &amp; Workspace Isolation</span>
           </div>
         </div>
       </div>

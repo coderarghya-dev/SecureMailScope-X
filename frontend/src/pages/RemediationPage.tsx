@@ -427,12 +427,23 @@ export const RemediationPage: React.FC = () => {
   }, [activeTab]);
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto', color: 'var(--text-main)' }}>
+    <div
+      style={{
+        padding: '24px',
+        width: '100%',
+        maxWidth: '100%',
+        minWidth: 0,
+        boxSizing: 'border-box',
+        overflowX: 'hidden',
+        margin: '0 auto',
+        color: 'var(--text-main)',
+      }}
+    >
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-            <ShieldAlert size={20} color="var(--text-cyan)" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+            <ShieldAlert size={20} color="var(--text-cyan)" style={{ flexShrink: 0 }} />
             <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 600 }}>Evidence-Based Remediation &amp; Simulate-Fix</h1>
             <span
               style={{
@@ -443,6 +454,7 @@ export const RemediationPage: React.FC = () => {
                 background: 'var(--accent-cyan-bg)',
                 color: 'var(--text-cyan)',
                 border: '1px solid var(--accent-cyan-border)',
+                flexShrink: 0,
               }}
             >
               PHASE 23 ADVISORY
@@ -466,6 +478,8 @@ export const RemediationPage: React.FC = () => {
           border: '1px solid rgba(56, 189, 248, 0.2)',
           marginBottom: '20px',
           fontSize: '12px',
+          width: '100%',
+          boxSizing: 'border-box',
         }}
       >
         <Terminal size={16} color="var(--text-cyan)" style={{ flexShrink: 0 }} />
@@ -475,7 +489,7 @@ export const RemediationPage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-subtle)', marginBottom: '20px' }}>
+      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-subtle)', marginBottom: '20px', overflowX: 'auto' }}>
         {[
           { id: 'playbooks', label: 'Playbook Generator', icon: <FileCode size={14} /> },
           { id: 'simulate', label: 'Simulate-Fix Engine', icon: <Sliders size={14} /> },
@@ -497,6 +511,7 @@ export const RemediationPage: React.FC = () => {
               fontSize: '13px',
               fontWeight: 500,
               cursor: 'pointer',
+              whiteSpace: 'nowrap',
             }}
           >
             {tab.icon}
@@ -507,8 +522,8 @@ export const RemediationPage: React.FC = () => {
 
       {/* TAB 1: Playbook Generator */}
       {activeTab === 'playbooks' && (
-        <div>
-          <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '20px' }}>
+        <div style={{ width: '100%', minWidth: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 0.72fr) minmax(0, 1.78fr)', gap: '20px', width: '100%', minWidth: 0 }}>
             {/* Left controls */}
             <div
               style={{
@@ -516,6 +531,8 @@ export const RemediationPage: React.FC = () => {
                 border: '1px solid var(--border-subtle)',
                 borderRadius: '8px',
                 padding: '16px',
+                minWidth: 0,
+                boxSizing: 'border-box',
               }}
             >
               <h3 style={{ margin: '0 0 14px 0', fontSize: '14px', fontWeight: 600 }}>Playbook Parameters</h3>
@@ -535,6 +552,7 @@ export const RemediationPage: React.FC = () => {
                     border: '1px solid var(--border-subtle)',
                     color: 'var(--text-main)',
                     fontSize: '12px',
+                    boxSizing: 'border-box',
                   }}
                 >
                   <option value="POSTFIX">Postfix Mail Transfer Agent</option>
@@ -562,6 +580,7 @@ export const RemediationPage: React.FC = () => {
                     border: '1px solid var(--border-subtle)',
                     color: 'var(--text-main)',
                     fontSize: '12px',
+                    boxSizing: 'border-box',
                   }}
                 />
               </div>
@@ -606,6 +625,8 @@ export const RemediationPage: React.FC = () => {
                               ? '1px solid var(--accent-cyan-border)'
                               : '1px solid var(--border-subtle)',
                             transition: 'all 0.15s ease',
+                            minWidth: 0,
+                            boxSizing: 'border-box',
                           }}
                         >
                           <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
@@ -619,11 +640,11 @@ export const RemediationPage: React.FC = () => {
                                   setSelectedFindingCodes(selectedFindingCodes.filter((c) => c !== f.id));
                                 }
                               }}
-                              style={{ marginTop: '2px' }}
+                              style={{ marginTop: '2px', flexShrink: 0 }}
                             />
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: '2px' }}>
-                                <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{f.title}</span>
+                                <span style={{ fontWeight: 600, color: 'var(--text-main)', wordBreak: 'break-word' }}>{f.title}</span>
                                 <span
                                   style={{
                                     fontSize: '9px',
@@ -631,6 +652,7 @@ export const RemediationPage: React.FC = () => {
                                     padding: '1px 4px',
                                     borderRadius: '2px',
                                     fontWeight: 600,
+                                    flexShrink: 0,
                                     background:
                                       f.severity === 'CRITICAL'
                                         ? 'rgba(239, 68, 68, 0.15)'
@@ -661,18 +683,19 @@ export const RemediationPage: React.FC = () => {
                                     fontSize: '9px',
                                     fontFamily: 'JetBrains Mono, monospace',
                                     color: 'var(--text-muted)',
+                                    flexShrink: 0,
                                   }}
                                 >
                                   [{f.category}]
                                 </span>
                               </div>
                               {f.remediation && (
-                                <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '2px', lineHeight: 1.4 }}>
+                                <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '2px', lineHeight: 1.4, wordBreak: 'break-word' }}>
                                   {f.remediation}
                                 </div>
                               )}
                               {Array.isArray(f.evidence_frames) && f.evidence_frames.length > 0 && (
-                                <div style={{ fontSize: '9.5px', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-cyan)', marginTop: '3px' }}>
+                                <div style={{ fontSize: '9.5px', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-cyan)', marginTop: '3px', wordBreak: 'break-word' }}>
                                   Frame Anchors: {f.evidence_frames.map((fn: number) => `#${fn}`).join(', ')}
                                 </div>
                               )}
@@ -703,6 +726,7 @@ export const RemediationPage: React.FC = () => {
                   fontWeight: 600,
                   cursor: loading || selectedFindingCodes.length === 0 ? 'not-allowed' : 'pointer',
                   opacity: loading || selectedFindingCodes.length === 0 ? 0.6 : 1,
+                  boxSizing: 'border-box',
                 }}
               >
                 <Sparkles size={14} />
@@ -727,6 +751,7 @@ export const RemediationPage: React.FC = () => {
                     fontSize: '12px',
                     fontWeight: 600,
                     cursor: 'pointer',
+                    boxSizing: 'border-box',
                   }}
                 >
                   <Plus size={14} />
@@ -736,7 +761,7 @@ export const RemediationPage: React.FC = () => {
             </div>
 
             {/* Right: Playbook Items */}
-            <div>
+            <div style={{ minWidth: 0, width: '100%' }}>
               {playbooks.length === 0 ? (
                 <div
                   style={{
@@ -746,6 +771,8 @@ export const RemediationPage: React.FC = () => {
                     border: '1px dashed var(--border-subtle)',
                     borderRadius: '8px',
                     color: 'var(--text-muted)',
+                    minWidth: 0,
+                    boxSizing: 'border-box',
                   }}
                 >
                   <FileCode size={32} style={{ marginBottom: '10px', opacity: 0.5 }} />
@@ -756,7 +783,7 @@ export const RemediationPage: React.FC = () => {
                   </p>
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', width: '100%', minWidth: 0 }}>
                   {playbooks.map((p) => (
                     <div
                       key={p.item_id}
@@ -765,6 +792,9 @@ export const RemediationPage: React.FC = () => {
                         border: '1px solid var(--border-subtle)',
                         borderRadius: '8px',
                         padding: '16px',
+                        minWidth: 0,
+                        maxWidth: '100%',
+                        boxSizing: 'border-box',
                       }}
                     >
                       <div
@@ -773,10 +803,11 @@ export const RemediationPage: React.FC = () => {
                           justifyContent: 'space-between',
                           alignItems: 'flex-start',
                           marginBottom: '10px',
+                          minWidth: 0,
                         }}
                       >
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
                             <span
                               style={{
                                 fontSize: '10px',
@@ -796,6 +827,7 @@ export const RemediationPage: React.FC = () => {
                                     ? 'var(--text-orange)'
                                     : 'var(--text-cyan)',
                                 border: '1px solid var(--border-subtle)',
+                                flexShrink: 0,
                               }}
                             >
                               {p.priority}
@@ -805,21 +837,22 @@ export const RemediationPage: React.FC = () => {
                                 fontSize: '10px',
                                 fontFamily: 'JetBrains Mono, monospace',
                                 color: 'var(--text-muted)',
+                                flexShrink: 0,
                               }}
                             >
                               {p.platform} / {p.finding_code}
                             </span>
                           </div>
-                          <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600 }}>{p.title}</h4>
+                          <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 600, wordBreak: 'break-word' }}>{p.title}</h4>
                         </div>
                       </div>
 
-                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px 0' }}>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 10px 0', wordBreak: 'break-word' }}>
                         {p.description}
                       </p>
 
                       {/* Config Snippet */}
-                      <div style={{ marginBottom: '12px' }}>
+                      <div style={{ marginBottom: '12px', width: '100%', minWidth: 0 }}>
                         <div
                           style={{
                             display: 'flex',
@@ -842,6 +875,7 @@ export const RemediationPage: React.FC = () => {
                               color: 'var(--text-cyan)',
                               fontSize: '11px',
                               cursor: 'pointer',
+                              flexShrink: 0,
                             }}
                           >
                             {copiedIndex === p.item_id ? <Check size={12} /> : <Copy size={12} />}
@@ -857,8 +891,12 @@ export const RemediationPage: React.FC = () => {
                             border: '1px solid var(--border-subtle)',
                             fontFamily: 'JetBrains Mono, monospace',
                             fontSize: '11px',
+                            maxWidth: '100%',
+                            minWidth: 0,
                             overflowX: 'auto',
+                            whiteSpace: 'pre',
                             color: '#a5f3fc',
+                            boxSizing: 'border-box',
                           }}
                         >
                           {p.configuration_snippet}
@@ -866,17 +904,19 @@ export const RemediationPage: React.FC = () => {
                       </div>
 
                       {/* Security Effect & Validation */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '11px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '11px', minWidth: 0, width: '100%' }}>
                         <div
                           style={{
                             padding: '8px',
                             borderRadius: '4px',
                             background: 'rgba(34, 197, 94, 0.05)',
                             border: '1px solid rgba(34, 197, 94, 0.2)',
+                            minWidth: 0,
+                            boxSizing: 'border-box',
                           }}
                         >
                           <strong style={{ color: 'var(--text-green)' }}>Security Effect:</strong>
-                          <p style={{ margin: '4px 0 0 0', color: 'var(--text-muted)' }}>{p.security_effect}</p>
+                          <p style={{ margin: '4px 0 0 0', color: 'var(--text-muted)', wordBreak: 'break-word' }}>{p.security_effect}</p>
                         </div>
                         <div
                           style={{
@@ -884,10 +924,12 @@ export const RemediationPage: React.FC = () => {
                             borderRadius: '4px',
                             background: 'var(--bg-surface)',
                             border: '1px solid var(--border-subtle)',
+                            minWidth: 0,
+                            boxSizing: 'border-box',
                           }}
                         >
                           <strong>Validation Steps:</strong>
-                          <ul style={{ margin: '4px 0 0 16px', padding: 0, color: 'var(--text-muted)' }}>
+                          <ul style={{ margin: '4px 0 0 16px', padding: 0, color: 'var(--text-muted)', wordBreak: 'break-word' }}>
                             {p.validation_steps.map((s, idx) => (
                               <li key={idx}>{s}</li>
                             ))}
@@ -905,7 +947,7 @@ export const RemediationPage: React.FC = () => {
 
       {/* TAB 2: Simulate-Fix Engine */}
       {activeTab === 'simulate' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '20px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 0.72fr) minmax(0, 1.78fr)', gap: '20px', width: '100%', minWidth: 0 }}>
           {/* Left: Input controls */}
           <div
             style={{
@@ -913,6 +955,8 @@ export const RemediationPage: React.FC = () => {
               border: '1px solid var(--border-subtle)',
               borderRadius: '8px',
               padding: '16px',
+              minWidth: 0,
+              boxSizing: 'border-box',
             }}
           >
             <h3 style={{ margin: '0 0 14px 0', fontSize: '14px', fontWeight: 600 }}>Simulate-Fix Parameters</h3>
@@ -938,7 +982,7 @@ export const RemediationPage: React.FC = () => {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   {observedFindings.map((f) => (
-                    <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: 'pointer' }}>
+                    <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: 'pointer', minWidth: 0 }}>
                       <input
                         type="checkbox"
                         checked={simBaselineFindings.includes(f.id)}
@@ -946,8 +990,9 @@ export const RemediationPage: React.FC = () => {
                           if (e.target.checked) setSimBaselineFindings([...simBaselineFindings, f.id]);
                           else setSimBaselineFindings(simBaselineFindings.filter((c) => c !== f.id));
                         }}
+                        style={{ flexShrink: 0 }}
                       />
-                      <span>{f.title} ({f.severity})</span>
+                      <span style={{ wordBreak: 'break-word' }}>{f.title} ({f.severity})</span>
                     </label>
                   ))}
                 </div>
@@ -965,7 +1010,7 @@ export const RemediationPage: React.FC = () => {
                   {simBaselineFindings.map((code) => {
                     const matchedFinding = observedFindings.find((f) => f.id === code);
                     return (
-                      <label key={code} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: 'pointer' }}>
+                      <label key={code} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: 'pointer', minWidth: 0 }}>
                         <input
                           type="checkbox"
                           checked={simFixCodes.includes(code)}
@@ -973,8 +1018,9 @@ export const RemediationPage: React.FC = () => {
                             if (e.target.checked) setSimFixCodes([...simFixCodes, code]);
                             else setSimFixCodes(simFixCodes.filter((c) => c !== code));
                           }}
+                          style={{ flexShrink: 0 }}
                         />
-                        <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>
+                        <span style={{ fontFamily: 'JetBrains Mono, monospace', wordBreak: 'break-word' }}>
                           {matchedFinding ? `${matchedFinding.title}` : code}
                         </span>
                       </label>
@@ -1002,6 +1048,7 @@ export const RemediationPage: React.FC = () => {
                 fontWeight: 600,
                 cursor: loading || simBaselineFindings.length === 0 ? 'not-allowed' : 'pointer',
                 opacity: loading || simBaselineFindings.length === 0 ? 0.6 : 1,
+                boxSizing: 'border-box',
               }}
             >
               <Play size={14} />
@@ -1010,7 +1057,7 @@ export const RemediationPage: React.FC = () => {
           </div>
 
           {/* Right: Simulation Results */}
-          <div>
+          <div style={{ minWidth: 0, width: '100%' }}>
             {!simResult ? (
               <div
                 style={{
@@ -1020,6 +1067,8 @@ export const RemediationPage: React.FC = () => {
                   border: '1px dashed var(--border-subtle)',
                   borderRadius: '8px',
                   color: 'var(--text-muted)',
+                  minWidth: 0,
+                  boxSizing: 'border-box',
                 }}
               >
                 <Sliders size={32} style={{ marginBottom: '10px', opacity: 0.5 }} />
@@ -1028,7 +1077,7 @@ export const RemediationPage: React.FC = () => {
                 </p>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', minWidth: 0 }}>
                 {/* Status Callout */}
                 <div
                   style={{
@@ -1038,13 +1087,15 @@ export const RemediationPage: React.FC = () => {
                     border: '1px solid rgba(168, 85, 247, 0.2)',
                     fontSize: '12px',
                     color: 'var(--text-purple)',
+                    minWidth: 0,
+                    boxSizing: 'border-box',
                   }}
                 >
                   <strong>{simResult.disclaimer}</strong>
                 </div>
 
                 {/* Side-by-Side Comparison */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', width: '100%', minWidth: 0 }}>
                   {/* Baseline (Observed) */}
                   <div
                     style={{
@@ -1052,10 +1103,12 @@ export const RemediationPage: React.FC = () => {
                       border: '1px solid var(--border-subtle)',
                       borderRadius: '8px',
                       padding: '16px',
+                      minWidth: 0,
+                      boxSizing: 'border-box',
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                      <AlertTriangle size={16} color="var(--text-orange)" />
+                      <AlertTriangle size={16} color="var(--text-orange)" style={{ flexShrink: 0 }} />
                       <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 600 }}>Observed Baseline Posture</h4>
                     </div>
 
@@ -1068,7 +1121,7 @@ export const RemediationPage: React.FC = () => {
                       </div>
                       <div>
                         <span style={{ color: 'var(--text-muted)' }}>Cipher Suite: </span>
-                        <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>
+                        <span style={{ fontFamily: 'JetBrains Mono, monospace', wordBreak: 'break-all' }}>
                           {simResult.side_by_side_comparison.baseline.cipher_suite || 'N/A'}
                         </span>
                       </div>
@@ -1082,6 +1135,7 @@ export const RemediationPage: React.FC = () => {
                                 fontSize: '10px',
                                 fontFamily: 'JetBrains Mono, monospace',
                                 color: 'var(--text-red)',
+                                wordBreak: 'break-all',
                               }}
                             >
                               • {f}
@@ -1099,10 +1153,12 @@ export const RemediationPage: React.FC = () => {
                       border: '1px solid rgba(34, 197, 94, 0.3)',
                       borderRadius: '8px',
                       padding: '16px',
+                      minWidth: 0,
+                      boxSizing: 'border-box',
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                      <ShieldCheck size={16} color="var(--text-green)" />
+                      <ShieldCheck size={16} color="var(--text-green)" style={{ flexShrink: 0 }} />
                       <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 600 }}>Projected After-Fix Posture</h4>
                     </div>
 
@@ -1115,7 +1171,7 @@ export const RemediationPage: React.FC = () => {
                       </div>
                       <div>
                         <span style={{ color: 'var(--text-muted)' }}>Cipher Suite: </span>
-                        <span style={{ fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-green)' }}>
+                        <span style={{ fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-green)', wordBreak: 'break-all' }}>
                           {simResult.side_by_side_comparison.projected.cipher_suite} (ASSUMED)
                         </span>
                       </div>
@@ -1131,6 +1187,7 @@ export const RemediationPage: React.FC = () => {
                                 fontSize: '10px',
                                 fontFamily: 'JetBrains Mono, monospace',
                                 color: 'var(--text-green)',
+                                wordBreak: 'break-all',
                               }}
                             >
                               ✓ {f}
@@ -1149,8 +1206,8 @@ export const RemediationPage: React.FC = () => {
 
       {/* TAB 3: Remediation Plans */}
       {activeTab === 'plans' && (
-        <div>
-          <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '20px' }}>
+        <div style={{ width: '100%', minWidth: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 0.72fr) minmax(0, 1.78fr)', gap: '20px', width: '100%', minWidth: 0 }}>
             {/* Plans List */}
             <div
               style={{
@@ -1158,6 +1215,8 @@ export const RemediationPage: React.FC = () => {
                 border: '1px solid var(--border-subtle)',
                 borderRadius: '8px',
                 padding: '16px',
+                minWidth: 0,
+                boxSizing: 'border-box',
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
@@ -1192,16 +1251,19 @@ export const RemediationPage: React.FC = () => {
                         border: selectedPlan?.plan_id === p.plan_id ? '1px solid var(--text-cyan)' : '1px solid var(--border-subtle)',
                         background: selectedPlan?.plan_id === p.plan_id ? 'rgba(56, 189, 248, 0.05)' : 'var(--bg-surface)',
                         cursor: 'pointer',
+                        minWidth: 0,
+                        boxSizing: 'border-box',
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                        <span style={{ fontSize: '12px', fontWeight: 600 }}>{p.title}</span>
+                        <span style={{ fontSize: '12px', fontWeight: 600, wordBreak: 'break-word' }}>{p.title}</span>
                         <span
                           style={{
                             fontSize: '9px',
                             fontFamily: 'JetBrains Mono, monospace',
                             padding: '1px 4px',
                             borderRadius: '2px',
+                            flexShrink: 0,
                             background:
                               p.status === 'VERIFIED'
                                 ? 'rgba(34, 197, 94, 0.1)'
@@ -1219,7 +1281,7 @@ export const RemediationPage: React.FC = () => {
                           {p.status}
                         </span>
                       </div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', wordBreak: 'break-word' }}>
                         {p.platform} • {p.items?.length || 0} items • By {p.created_by}
                       </div>
                     </div>
@@ -1229,7 +1291,7 @@ export const RemediationPage: React.FC = () => {
             </div>
 
             {/* Plan Details & Actions */}
-            <div>
+            <div style={{ minWidth: 0, width: '100%' }}>
               {!selectedPlan ? (
                 <div
                   style={{
@@ -1239,21 +1301,23 @@ export const RemediationPage: React.FC = () => {
                     border: '1px dashed var(--border-subtle)',
                     borderRadius: '8px',
                     color: 'var(--text-muted)',
+                    minWidth: 0,
+                    boxSizing: 'border-box',
                   }}
                 >
                   <Layers size={32} style={{ marginBottom: '10px', opacity: 0.5 }} />
                   <p style={{ margin: 0, fontSize: '13px' }}>Select a plan to view details, mark applied, or verify.</p>
                 </div>
               ) : (
-                <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: '8px', padding: '20px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-                    <div>
-                      <h3 style={{ margin: '0 0 4px 0', fontSize: '16px', fontWeight: 600 }}>{selectedPlan.title}</h3>
-                      <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: '8px', padding: '20px', minWidth: 0, boxSizing: 'border-box' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', minWidth: 0 }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <h3 style={{ margin: '0 0 4px 0', fontSize: '16px', fontWeight: 600, wordBreak: 'break-word' }}>{selectedPlan.title}</h3>
+                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', wordBreak: 'break-word' }}>
                         Plan ID: <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>{selectedPlan.plan_id}</span> • Platform: {selectedPlan.platform}
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
+                    <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
                       {selectedPlan.status === 'PROPOSED' && (
                         <button
                           onClick={() => setShowApplyModal(true)}
@@ -1299,7 +1363,7 @@ export const RemediationPage: React.FC = () => {
 
                   {/* Plan Items */}
                   <h4 style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: 600 }}>Action Items ({selectedPlan.items?.length || 0})</h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', minWidth: 0 }}>
                     {selectedPlan.items?.map((item) => (
                       <div
                         key={item.item_id}
@@ -1308,11 +1372,13 @@ export const RemediationPage: React.FC = () => {
                           borderRadius: '6px',
                           background: 'var(--bg-surface)',
                           border: '1px solid var(--border-subtle)',
+                          minWidth: 0,
+                          boxSizing: 'border-box',
                         }}
                       >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                          <span style={{ fontSize: '12px', fontWeight: 600 }}>{item.title}</span>
-                          <span style={{ fontSize: '10px', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-cyan)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', minWidth: 0 }}>
+                          <span style={{ fontSize: '12px', fontWeight: 600, wordBreak: 'break-word' }}>{item.title}</span>
+                          <span style={{ fontSize: '10px', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-cyan)', flexShrink: 0 }}>
                             {item.finding_code}
                           </span>
                         </div>
@@ -1324,8 +1390,12 @@ export const RemediationPage: React.FC = () => {
                             background: 'var(--bg-main)',
                             fontFamily: 'JetBrains Mono, monospace',
                             fontSize: '10px',
+                            maxWidth: '100%',
+                            minWidth: 0,
                             overflowX: 'auto',
+                            whiteSpace: 'pre',
                             color: '#a5f3fc',
+                            boxSizing: 'border-box',
                           }}
                         >
                           {item.configuration_snippet}
@@ -1342,7 +1412,7 @@ export const RemediationPage: React.FC = () => {
 
       {/* TAB 4: Verification Audit Logs */}
       {activeTab === 'verifications' && (
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: '8px', padding: '20px' }}>
+        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: '8px', padding: '20px', minWidth: 0, width: '100%', boxSizing: 'border-box' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
             <FileCheck size={18} color="var(--text-cyan)" />
             <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>Forensic Verification Audit Trail</h3>

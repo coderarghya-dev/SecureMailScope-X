@@ -1,4 +1,5 @@
 import React from 'react';
+import logoEmblemImg from '../../assets/logo-emblem.png';
 import logoImg from '../../assets/logo.png';
 
 export interface LogoProps {
@@ -7,13 +8,14 @@ export interface LogoProps {
   style?: React.CSSProperties;
   imgStyle?: React.CSSProperties;
   showWordmark?: boolean;
+  useFullLockup?: boolean;
   alt?: string;
 }
 
 const SIZE_MAP: Record<string, number> = {
-  sm: 26,
-  md: 44,
-  lg: 72,
+  sm: 28,
+  md: 46,
+  lg: 74,
   xl: 96,
 };
 
@@ -23,9 +25,11 @@ export const Logo: React.FC<LogoProps> = ({
   style,
   imgStyle,
   showWordmark = false,
+  useFullLockup = false,
   alt = 'SecureMailScope X',
 }) => {
-  const pixelSize = typeof size === 'number' ? size : SIZE_MAP[size] || 44;
+  const pixelSize = typeof size === 'number' ? size : SIZE_MAP[size] || 46;
+  const imageSource = useFullLockup ? logoImg : logoEmblemImg;
 
   return (
     <div
@@ -39,14 +43,14 @@ export const Logo: React.FC<LogoProps> = ({
       }}
     >
       <img
-        src={logoImg}
+        src={imageSource}
         alt={alt}
         style={{
           width: `${pixelSize}px`,
           height: `${pixelSize}px`,
           objectFit: 'contain',
           flexShrink: 0,
-          filter: 'drop-shadow(0 2px 8px rgba(6, 182, 212, 0.25))',
+          filter: 'drop-shadow(0 2px 12px rgba(6, 182, 212, 0.35))',
           ...imgStyle,
         }}
       />
@@ -55,18 +59,17 @@ export const Logo: React.FC<LogoProps> = ({
           <span
             className="sidebar-brand-title"
             style={{
-              fontSize: pixelSize >= 44 ? '16px' : '13.5px',
-              fontWeight: 700,
+              fontSize: pixelSize >= 44 ? '17px' : '14px',
+              fontWeight: 800,
               color: '#ffffff',
-              letterSpacing: '-0.01em',
+              letterSpacing: '-0.02em',
               display: 'flex',
               alignItems: 'center',
-              gap: '4px',
+              gap: '2px',
               lineHeight: 1.15,
             }}
           >
-            SecureMailScope{' '}
-            <span
+            SecureMailScope<span
               style={{
                 color: 'var(--text-cyan, #06b6d4)',
                 fontFamily: 'JetBrains Mono, monospace',
@@ -78,7 +81,7 @@ export const Logo: React.FC<LogoProps> = ({
           <span
             className="sidebar-brand-subtitle"
             style={{
-              fontSize: pixelSize >= 44 ? '9.5px' : '8.5px',
+              fontSize: pixelSize >= 44 ? '10px' : '8.5px',
               fontFamily: 'JetBrains Mono, monospace',
               color: 'var(--text-muted, #94a3b8)',
               letterSpacing: '0.05em',

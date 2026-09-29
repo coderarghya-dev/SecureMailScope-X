@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { Lock, Mail, ArrowRight, AlertCircle, CheckCircle, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { Lock, Mail, ArrowRight, AlertCircle, CheckCircle, Eye, EyeOff, Shield, HelpCircle } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 import { getApiUrl } from '../api/client';
 import { Logo } from '../components/common/Logo';
@@ -16,8 +16,10 @@ export const LoginPage: React.FC = () => {
 
   const [email, setEmail] = useState(registeredEmail || '');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -31,6 +33,7 @@ export const LoginPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setNotice(null);
     setIsLoading(true);
 
     try {
@@ -57,112 +60,90 @@ export const LoginPage: React.FC = () => {
     }
   };
 
+  const handleForgotPassword = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setNotice('Password recovery is managed by your organization security administrator.');
+  };
+
+  const handleSSOLogin = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setNotice('Enterprise SSO provider redirection initiated. Contact SOC administrator if unconfigured.');
+  };
+
   return (
     <div className="auth-split-wrapper">
-      {/* Left Side: Cyber-Forensics Hero */}
+      {/* Top Right "Need Help?" Link (Image B exact match: outside card, top-right) */}
+      <a
+        href="#help"
+        onClick={(e) => {
+          e.preventDefault();
+          setNotice('Forensic analyst documentation & SOC helpdesk is available on internal channel.');
+        }}
+        className="auth-top-help"
+      >
+        <HelpCircle size={15} />
+        <span>Need Help?</span>
+      </a>
+
+      {/* Left 67%: Cinematic Cyber-Forensics Hero Stage */}
       <AuthHero />
 
-      {/* Right Side: Glassmorphism Login Card */}
+      {/* Right 33%: Glassmorphism Authentication Panel */}
       <div className="auth-form-section">
         <div className="auth-glass-card">
           {/* Brand Header */}
-          <div style={{ textAlign: 'center', marginBottom: '26px' }}>
-            <div style={{ marginBottom: '14px', display: 'flex', justifyContent: 'center' }}>
-              <Logo size={70} alt="SecureMailScope X" />
+          <div className="auth-card-header">
+            <div className="auth-card-logo-wrap">
+              <Logo size={105} alt="SecureMailScope X" />
             </div>
 
-            <h2
-              style={{
-                fontSize: '18px',
-                fontWeight: 700,
-                letterSpacing: '-0.01em',
-                color: '#ffffff',
-                fontFamily: 'Inter, sans-serif',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '4px',
-              }}
-            >
-              SecureMailScope{' '}
-              <span
-                style={{
-                  color: 'var(--text-cyan, #06b6d4)',
-                  fontFamily: 'JetBrains Mono, monospace',
-                }}
-              >
-                X
-              </span>
+            <h2 className="auth-card-title">
+              SecureMailScope<span className="auth-brand-x">X</span>
             </h2>
 
-            <p
-              style={{
-                fontSize: '12px',
-                color: '#94a3b8',
-                marginTop: '5px',
-                lineHeight: 1.4,
-              }}
-            >
-              Sign in to continue your investigation workspace.
+            <p className="auth-card-subtitle">
+              Sign in to continue your<br />investigation workspace.
             </p>
           </div>
 
           {/* Success Banner */}
-          {successMessage && !error && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                backgroundColor: 'rgba(16, 185, 129, 0.12)',
-                border: '1px solid rgba(16, 185, 129, 0.35)',
-                color: '#34d399',
-                padding: '10px 12px',
-                borderRadius: '8px',
-                fontSize: '11.5px',
-                marginBottom: '18px',
-              }}
-            >
+          {successMessage && !error && !notice && (
+            <div className="auth-alert-banner success">
               <CheckCircle size={15} style={{ flexShrink: 0 }} />
               <span>{successMessage}</span>
             </div>
           )}
 
+          {/* Notice Banner */}
+          {notice && !error && (
+            <div className="auth-alert-banner success" style={{ backgroundColor: 'rgba(0, 210, 255, 0.12)', borderColor: 'rgba(0, 210, 255, 0.35)', color: '#38bdf8' }}>
+              <CheckCircle size={15} style={{ flexShrink: 0 }} />
+              <span>{notice}</span>
+            </div>
+          )}
+
           {/* Error Banner */}
           {error && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                backgroundColor: 'rgba(244, 63, 94, 0.12)',
-                border: '1px solid rgba(244, 63, 94, 0.35)',
-                color: '#fb7185',
-                padding: '10px 12px',
-                borderRadius: '8px',
-                fontSize: '11.5px',
-                marginBottom: '18px',
-              }}
-            >
+            <div className="auth-alert-banner error">
               <AlertCircle size={15} style={{ flexShrink: 0 }} />
               <span>{error}</span>
             </div>
           )}
 
           {/* Login Form */}
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <form onSubmit={handleSubmit} className="auth-card-form">
             <div className="auth-input-group">
               <label className="auth-input-label">Email Address</label>
               <div className="auth-input-container">
                 <div className="auth-input-icon">
-                  <Mail size={14} />
+                  <Mail size={15} />
                 </div>
                 <input
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="analyst@agency.gov"
+                  placeholder="you@company.com"
                   className="auth-input-field"
                   autoComplete="email"
                 />
@@ -173,14 +154,14 @@ export const LoginPage: React.FC = () => {
               <label className="auth-input-label">Password</label>
               <div className="auth-input-container">
                 <div className="auth-input-icon">
-                  <Lock size={14} />
+                  <Lock size={15} />
                 </div>
                 <input
                   type={showPassword ? 'text' : 'password'}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your access key / password"
+                  placeholder="Enter your password"
                   className="auth-input-field"
                   autoComplete="current-password"
                 />
@@ -191,11 +172,28 @@ export const LoginPage: React.FC = () => {
                   title={showPassword ? 'Hide password' : 'Show password'}
                   tabIndex={-1}
                 >
-                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
 
+            {/* Remember Me & Forgot Password Row (Image B Match) */}
+            <div className="auth-remember-row">
+              <label className="auth-remember-label">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="auth-remember-checkbox"
+                />
+                <span>Remember me</span>
+              </label>
+              <a href="#forgot" onClick={handleForgotPassword} className="auth-forgot-link">
+                Forgot password?
+              </a>
+            </div>
+
+            {/* Submit Button */}
             <button
               type="submit"
               disabled={isLoading}
@@ -206,51 +204,33 @@ export const LoginPage: React.FC = () => {
               ) : (
                 <>
                   <span>Sign In</span>
-                  <ArrowRight size={14} />
+                  <ArrowRight size={15} />
                 </>
               )}
             </button>
+
+            {/* OR Divider (Image B Match) */}
+            <div className="auth-divider">
+              <span>OR</span>
+            </div>
+
+            {/* SSO Button (Image B Match) */}
+            <button
+              type="button"
+              onClick={handleSSOLogin}
+              className="auth-sso-btn"
+            >
+              <Shield size={16} color="#00d2ff" />
+              <span>Sign in with SSO</span>
+            </button>
           </form>
 
-          {/* Footer Navigation Link */}
-          <div
-            style={{
-              marginTop: '22px',
-              paddingTop: '16px',
-              borderTop: '1px solid rgba(6, 182, 212, 0.15)',
-              textAlign: 'center',
-              fontSize: '11.5px',
-              color: '#94a3b8',
-            }}
-          >
+          {/* Footer Navigation Link (Image B Exact Match) */}
+          <div className="auth-card-footer">
             New to SecureMailScope X?{' '}
-            <Link
-              to="/register"
-              style={{
-                color: '#38bdf8',
-                fontWeight: 600,
-                textDecoration: 'none',
-                marginLeft: '3px',
-              }}
-            >
-              Register Analyst Profile
+            <Link to="/register" className="auth-footer-link">
+              Contact your administrator.
             </Link>
-          </div>
-
-          <div
-            style={{
-              marginTop: '14px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              fontSize: '10px',
-              fontFamily: 'JetBrains Mono, monospace',
-              color: '#64748b',
-            }}
-          >
-            <ShieldCheck size={11} color="#06b6d4" />
-            <span>Per-User Isolated Forensic Workspace</span>
           </div>
         </div>
       </div>
