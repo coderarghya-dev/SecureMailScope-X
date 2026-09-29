@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { Shield, Lock, Mail, ArrowRight, AlertCircle, CheckCircle } from 'lucide-react';
+import { Lock, Mail, ArrowRight, AlertCircle, CheckCircle, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 import { getApiUrl } from '../api/client';
+import { Logo } from '../components/common/Logo';
+import { AuthHero } from '../components/auth/AuthHero';
 
 export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -14,6 +16,7 @@ export const LoginPage: React.FC = () => {
 
   const [email, setEmail] = useState(registeredEmail || '');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -22,7 +25,6 @@ export const LoginPage: React.FC = () => {
       setEmail(registeredEmail);
     }
   }, [registeredEmail]);
-
 
   const fromPath = (location.state as any)?.from?.pathname || '/dashboard';
 
@@ -56,273 +58,200 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'var(--bg-app, #0a0e17)',
-        padding: '20px',
-        position: 'relative',
-        overflow: 'hidden',
-      }}
-    >
-      {/* Background Grid Pattern */}
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          backgroundImage:
-            'linear-gradient(rgba(148, 163, 184, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(148, 163, 184, 0.03) 1px, transparent 1px)',
-          backgroundSize: '32px 32px',
-          pointerEvents: 'none',
-        }}
-      />
+    <div className="auth-split-wrapper">
+      {/* Left Side: Cyber-Forensics Hero */}
+      <AuthHero />
 
-      <div
-        style={{
-          width: '100%',
-          maxWidth: '420px',
-          backgroundColor: 'var(--surface-elevated, #131b2e)',
-          border: '1px solid var(--border-medium, rgba(6, 182, 212, 0.25))',
-          borderRadius: 'var(--radius-lg, 8px)',
-          padding: '32px',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5), 0 0 16px rgba(6, 182, 212, 0.1)',
-          position: 'relative',
-          zIndex: 1,
-        }}
-      >
-        {/* Brand Header */}
-        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-          <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: '44px',
-              height: '44px',
-              borderRadius: '10px',
-              backgroundColor: 'rgba(6, 182, 212, 0.12)',
-              border: '1px solid rgba(6, 182, 212, 0.3)',
-              marginBottom: '12px',
-            }}
-          >
-            <Shield size={22} color="var(--accent-cyan, #06b6d4)" />
+      {/* Right Side: Glassmorphism Login Card */}
+      <div className="auth-form-section">
+        <div className="auth-glass-card">
+          {/* Brand Header */}
+          <div style={{ textAlign: 'center', marginBottom: '26px' }}>
+            <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'center' }}>
+              <Logo size={58} alt="SecureMailScope X" />
+            </div>
+
+            <h2
+              style={{
+                fontSize: '18px',
+                fontWeight: 700,
+                letterSpacing: '-0.01em',
+                color: '#ffffff',
+                fontFamily: 'Inter, sans-serif',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '4px',
+              }}
+            >
+              SecureMailScope{' '}
+              <span
+                style={{
+                  color: 'var(--text-cyan, #06b6d4)',
+                  fontFamily: 'JetBrains Mono, monospace',
+                }}
+              >
+                X
+              </span>
+            </h2>
+
+            <p
+              style={{
+                fontSize: '12px',
+                color: '#94a3b8',
+                marginTop: '5px',
+                lineHeight: 1.4,
+              }}
+            >
+              Sign in to continue your investigation workspace.
+            </p>
           </div>
 
-          <div
-            style={{
-              fontSize: '17px',
-              fontWeight: 700,
-              letterSpacing: '0.05em',
-              color: '#f8fafc',
-              fontFamily: 'JetBrains Mono, monospace',
-            }}
-          >
-            SECUREMAILSCOPE X
-          </div>
+          {/* Success Banner */}
+          {successMessage && !error && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                border: '1px solid rgba(16, 185, 129, 0.35)',
+                color: '#34d399',
+                padding: '10px 12px',
+                borderRadius: '8px',
+                fontSize: '11.5px',
+                marginBottom: '18px',
+              }}
+            >
+              <CheckCircle size={15} style={{ flexShrink: 0 }} />
+              <span>{successMessage}</span>
+            </div>
+          )}
 
+          {/* Error Banner */}
+          {error && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                backgroundColor: 'rgba(244, 63, 94, 0.12)',
+                border: '1px solid rgba(244, 63, 94, 0.35)',
+                color: '#fb7185',
+                padding: '10px 12px',
+                borderRadius: '8px',
+                fontSize: '11.5px',
+                marginBottom: '18px',
+              }}
+            >
+              <AlertCircle size={15} style={{ flexShrink: 0 }} />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {/* Login Form */}
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className="auth-input-group">
+              <label className="auth-input-label">Email Address</label>
+              <div className="auth-input-container">
+                <div className="auth-input-icon">
+                  <Mail size={14} />
+                </div>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="analyst@agency.gov"
+                  className="auth-input-field"
+                  autoComplete="email"
+                />
+              </div>
+            </div>
+
+            <div className="auth-input-group">
+              <label className="auth-input-label">Password</label>
+              <div className="auth-input-container">
+                <div className="auth-input-icon">
+                  <Lock size={14} />
+                </div>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter your access key / password"
+                  className="auth-input-field"
+                  autoComplete="current-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="auth-input-toggle"
+                  title={showPassword ? 'Hide password' : 'Show password'}
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="auth-submit-btn"
+            >
+              {isLoading ? (
+                <span>AUTHENTICATING...</span>
+              ) : (
+                <>
+                  <span>Sign In</span>
+                  <ArrowRight size={14} />
+                </>
+              )}
+            </button>
+          </form>
+
+          {/* Footer Navigation Link */}
           <div
             style={{
+              marginTop: '22px',
+              paddingTop: '16px',
+              borderTop: '1px solid rgba(6, 182, 212, 0.15)',
+              textAlign: 'center',
               fontSize: '11.5px',
-              color: 'var(--text-muted, #94a3b8)',
-              marginTop: '4px',
+              color: '#94a3b8',
             }}
           >
-            Cryptographic Forensics &amp; Chain of Custody
-          </div>
-        </div>
-
-        {successMessage && !error && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              backgroundColor: 'rgba(16, 185, 129, 0.12)',
-              border: '1px solid rgba(16, 185, 129, 0.3)',
-              color: 'var(--text-emerald, #10b981)',
-              padding: '10px 12px',
-              borderRadius: 'var(--radius-sm, 4px)',
-              fontSize: '11px',
-              marginBottom: '18px',
-            }}
-          >
-            <CheckCircle size={14} style={{ flexShrink: 0 }} />
-            <span>{successMessage}</span>
-          </div>
-        )}
-
-        {error && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              backgroundColor: 'rgba(244, 63, 94, 0.12)',
-              border: '1px solid rgba(244, 63, 94, 0.3)',
-              color: 'var(--text-rose, #f43f5e)',
-              padding: '10px 12px',
-              borderRadius: 'var(--radius-sm, 4px)',
-              fontSize: '11px',
-              marginBottom: '18px',
-            }}
-          >
-            <AlertCircle size={14} style={{ flexShrink: 0 }} />
-            <span>{error}</span>
-          </div>
-        )}
-
-
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div>
-            <label
+            New to SecureMailScope X?{' '}
+            <Link
+              to="/register"
               style={{
-                display: 'block',
-                fontSize: '10.5px',
-                fontFamily: 'JetBrains Mono, monospace',
-                color: 'var(--text-secondary, #cbd5e1)',
-                textTransform: 'uppercase',
-                marginBottom: '6px',
+                color: '#38bdf8',
                 fontWeight: 600,
+                textDecoration: 'none',
+                marginLeft: '3px',
               }}
             >
-              Analyst Email
-            </label>
-            <div style={{ position: 'relative' }}>
-              <div
-                style={{
-                  position: 'absolute',
-                  left: '10px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: 'var(--text-muted, #64748b)',
-                  display: 'flex',
-                  alignItems: 'center',
-                }}
-              >
-                <Mail size={14} />
-              </div>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="analyst@agency.gov"
-                style={{
-                  width: '100%',
-                  padding: '9px 12px 9px 32px',
-                  backgroundColor: 'var(--surface-primary, #0c1222)',
-                  border: '1px solid var(--border-subtle, #1e293b)',
-                  borderRadius: 'var(--radius-sm, 4px)',
-                  color: '#f8fafc',
-                  fontSize: '12px',
-                  fontFamily: 'JetBrains Mono, monospace',
-                  outline: 'none',
-                  transition: 'border-color 0.15s ease',
-                }}
-              />
-            </div>
+              Register Analyst Profile
+            </Link>
           </div>
 
-          <div>
-            <label
-              style={{
-                display: 'block',
-                fontSize: '10.5px',
-                fontFamily: 'JetBrains Mono, monospace',
-                color: 'var(--text-secondary, #cbd5e1)',
-                textTransform: 'uppercase',
-                marginBottom: '6px',
-                fontWeight: 600,
-              }}
-            >
-              Access Key / Password
-            </label>
-            <div style={{ position: 'relative' }}>
-              <div
-                style={{
-                  position: 'absolute',
-                  left: '10px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: 'var(--text-muted, #64748b)',
-                  display: 'flex',
-                  alignItems: 'center',
-                }}
-              >
-                <Lock size={14} />
-              </div>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••••••"
-                style={{
-                  width: '100%',
-                  padding: '9px 12px 9px 32px',
-                  backgroundColor: 'var(--surface-primary, #0c1222)',
-                  border: '1px solid var(--border-subtle, #1e293b)',
-                  borderRadius: 'var(--radius-sm, 4px)',
-                  color: '#f8fafc',
-                  fontSize: '12px',
-                  fontFamily: 'JetBrains Mono, monospace',
-                  outline: 'none',
-                  transition: 'border-color 0.15s ease',
-                }}
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="btn-primary"
+          <div
             style={{
-              marginTop: '8px',
-              padding: '10px',
+              marginTop: '14px',
+              display: 'flex',
+              alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '12px',
-              fontWeight: 600,
-              letterSpacing: '0.04em',
-              cursor: isLoading ? 'not-allowed' : 'pointer',
-              opacity: isLoading ? 0.7 : 1,
+              gap: '6px',
+              fontSize: '10px',
+              fontFamily: 'JetBrains Mono, monospace',
+              color: '#64748b',
             }}
           >
-            {isLoading ? (
-              <span>AUTHENTICATING...</span>
-            ) : (
-              <>
-                <span>ENTER WORKSTATION</span>
-                <ArrowRight size={13} />
-              </>
-            )}
-          </button>
-        </form>
-
-        <div
-          style={{
-            marginTop: '24px',
-            paddingTop: '18px',
-            borderTop: '1px solid var(--border-subtle, #1e293b)',
-            textAlign: 'center',
-            fontSize: '11px',
-            color: 'var(--text-muted, #94a3b8)',
-          }}
-        >
-          Need analyst access?{' '}
-          <Link
-            to="/register"
-            style={{
-              color: 'var(--accent-cyan, #06b6d4)',
-              fontWeight: 600,
-              textDecoration: 'none',
-            }}
-          >
-            Register Credentials
-          </Link>
+            <ShieldCheck size={11} color="#06b6d4" />
+            <span>Per-User Isolated Forensic Workspace</span>
+          </div>
         </div>
       </div>
     </div>

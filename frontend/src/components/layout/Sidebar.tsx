@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useHealthStore } from '../../store/useHealthStore';
 import { StatusIndicator } from '../common/StatusIndicator';
+import { Logo } from '../common/Logo';
 
 interface NavItem {
   name: string;
@@ -74,22 +75,14 @@ export const Sidebar: React.FC = () => {
   return (
     <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
       {/* Brand Header */}
-      <div className="sidebar-header">
-        <img
-          src="/logo.svg"
-          alt="SecureMailScope X Logo"
-          style={{ width: '20px', height: '20px', flexShrink: 0 }}
-        />
-        {!collapsed && (
-          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
-            <span className="sidebar-brand-title">
-              SecureMailScope <span style={{ color: 'var(--text-cyan)', fontFamily: 'JetBrains Mono, monospace' }}>X</span>
-            </span>
-            <span className="sidebar-brand-subtitle">
-              Cryptographic Forensics
-            </span>
-          </div>
-        )}
+      <div
+        className="sidebar-header"
+        style={{
+          justifyContent: collapsed ? 'center' : 'flex-start',
+          padding: collapsed ? '0 10px' : '0 16px',
+        }}
+      >
+        <Logo size="sm" showWordmark={!collapsed} alt="SecureMailScope X" />
       </div>
 
       {/* Navigation Groups */}

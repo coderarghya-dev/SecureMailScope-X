@@ -1,4 +1,5 @@
 @import './design-tokens.css';
+@import './auth.css';
 
 /* Base Reset */
 *, *::before, *::after {
