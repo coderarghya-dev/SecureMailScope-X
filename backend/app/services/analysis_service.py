@@ -106,6 +106,7 @@ class AnalysisService:
         original_filename: str,
         content: bytes,
         actor: Optional[ActorContext] = None,
+        user_id: Optional[str] = None,
     ) -> AnalysisDetailResponse:
         """
         Saves bytes securely to temporary file, executes passive forensics,
@@ -122,15 +123,17 @@ class AnalysisService:
         clean_filename = os.path.basename(original_filename)
 
         # Initialize Chain of Custody Ingestion & Hashing
-        CustodyService.get_or_create_record(analysis_id, clean_filename, content)
+        CustodyService.get_or_create_record(analysis_id, clean_filename, content, actor=actor)
 
         # Return cached or persistently stored result if already analyzed
         existing_report = cls.get_analysis(analysis_id)
         if existing_report:
+            if user_id:
+                ForensicRepository.associate_user_analysis(user_id=user_id, analysis_id=analysis_id)
             return existing_report
 
         # Record Analysis Start
-        CustodyService.record_analysis_start(analysis_id)
+        CustodyService.record_analysis_start(analysis_id, actor=actor)
 
         # Secure Temporary File
         safe_prefix = f"sms_{analysis_id[:12]}_"
@@ -144,8 +147,10 @@ class AnalysisService:
             report, sessions = cls._run_pipeline(temp_path, clean_filename, len(content), analysis_id)
             cls._cache[analysis_id] = (report, sessions)
 
-            # Persist to database
-            cls._persist_analysis(report, sessions, actor=actor)
+            # Persist to database & associate user
+            cls._persist_analysis(report, sessions, actor=actor, user_id=user_id)
+            if user_id:
+                ForensicRepository.associate_user_analysis(user_id=user_id, analysis_id=analysis_id)
 
             # Record Analysis Completion & Seal Manifest
             CustodyService.record_analysis_completion(analysis_id, report, actor=actor)
@@ -661,6 +666,7 @@ class AnalysisService:
         report: AnalysisDetailResponse,
         sessions: List[EmailSession],
         actor: Optional[ActorContext] = None,
+        user_id: Optional[str] = None,
     ):
         """Helper to persist analysis to database."""
         try:
@@ -691,12 +697,17 @@ class AnalysisService:
                 raw_packets_by_session=raw_packets_map,
                 actor=actor,
             )
+            if user_id:
+                ForensicRepository.associate_user_analysis(user_id=user_id, analysis_id=report.analysis_id)
         except Exception:
             pass  # Non-fatal if DB is in-memory or locked
 
     @classmethod
-    def get_analysis(cls, analysis_id: str) -> Optional[AnalysisDetailResponse]:
-        """Retrieve analysis report from in-memory cache or persistent repository."""
+    def get_analysis(cls, analysis_id: str, user_id: Optional[str] = None) -> Optional[AnalysisDetailResponse]:
+        """Retrieve analysis report from in-memory cache or persistent repository (optionally scoped to user)."""
+        if user_id and not ForensicRepository.is_analysis_owned_by_user(user_id=user_id, analysis_id=analysis_id):
+            return None
+
         item = cls._cache.get(analysis_id)
         if item:
             return item[0]
@@ -709,21 +720,24 @@ class AnalysisService:
         return None
 
     @classmethod
-    def list_analyses(cls, include_archived: bool = False) -> List[Dict[str, Any]]:
-        """List all stored analyses."""
-        return ForensicRepository.list_analyses(include_archived=include_archived)
+    def list_analyses(cls, include_archived: bool = False, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List all stored analyses (optionally scoped to user)."""
+        return ForensicRepository.list_analyses(include_archived=include_archived, user_id=user_id)
 
     @classmethod
-    def get_session(cls, analysis_id: str, session_id: str) -> Optional[SessionDetailDTO]:
+    def get_session(cls, analysis_id: str, session_id: str, user_id: Optional[str] = None) -> Optional[SessionDetailDTO]:
         """Retrieve single session details."""
-        analysis = cls.get_analysis(analysis_id)
+        analysis = cls.get_analysis(analysis_id, user_id=user_id)
         if not analysis:
             return None
         return next((s for s in analysis.sessions if s.session_id == session_id), None)
 
     @classmethod
-    def get_session_packets(cls, analysis_id: str, session_id: str) -> Optional[List[PacketEvidenceDTO]]:
+    def get_session_packets(cls, analysis_id: str, session_id: str, user_id: Optional[str] = None) -> Optional[List[PacketEvidenceDTO]]:
         """Retrieve all raw packet evidence for a specific session."""
+        if user_id and not ForensicRepository.is_analysis_owned_by_user(user_id=user_id, analysis_id=analysis_id):
+            return None
+
         item = cls._cache.get(analysis_id)
         if item and item[1]:
             _, raw_sessions = item

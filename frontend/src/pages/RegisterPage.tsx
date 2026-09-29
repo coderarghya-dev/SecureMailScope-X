@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Shield, Lock, Mail, User, ArrowRight, AlertCircle, CheckCircle } from 'lucide-react';
-import { useAuthStore } from '../store/useAuthStore';
 import { getApiUrl } from '../api/client';
 
 export const RegisterPage: React.FC = () => {
   const navigate = useNavigate();
-  const { login } = useAuthStore();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -50,14 +48,21 @@ export const RegisterPage: React.FC = () => {
         throw new Error(data.detail || data.message || 'Registration failed. Please check inputs.');
       }
 
-      login(data.access_token, data.user);
-      navigate('/dashboard', { replace: true });
+      // Do NOT auto-authenticate or persist token; redirect to login page
+      navigate('/login', {
+        replace: true,
+        state: {
+          successMessage: 'Account created successfully. Please sign in.',
+          registeredEmail: email.trim(),
+        },
+      });
     } catch (err: any) {
       setError(err.message || 'Unable to connect to authentication server.');
     } finally {
       setIsLoading(false);
     }
   };
+
 
   return (
     <div

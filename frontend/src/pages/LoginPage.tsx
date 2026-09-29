@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { Shield, Lock, Mail, ArrowRight, AlertCircle } from 'lucide-react';
+import { Shield, Lock, Mail, ArrowRight, AlertCircle, CheckCircle } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 import { getApiUrl } from '../api/client';
 
@@ -9,10 +9,20 @@ export const LoginPage: React.FC = () => {
   const location = useLocation();
   const { login } = useAuthStore();
 
-  const [email, setEmail] = useState('');
+  const successMessage = (location.state as any)?.successMessage as string | undefined;
+  const registeredEmail = (location.state as any)?.registeredEmail as string | undefined;
+
+  const [email, setEmail] = useState(registeredEmail || '');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (registeredEmail && !email) {
+      setEmail(registeredEmail);
+    }
+  }, [registeredEmail]);
+
 
   const fromPath = (location.state as any)?.from?.pathname || '/dashboard';
 
@@ -124,6 +134,26 @@ export const LoginPage: React.FC = () => {
           </div>
         </div>
 
+        {successMessage && !error && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              backgroundColor: 'rgba(16, 185, 129, 0.12)',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
+              color: 'var(--text-emerald, #10b981)',
+              padding: '10px 12px',
+              borderRadius: 'var(--radius-sm, 4px)',
+              fontSize: '11px',
+              marginBottom: '18px',
+            }}
+          >
+            <CheckCircle size={14} style={{ flexShrink: 0 }} />
+            <span>{successMessage}</span>
+          </div>
+        )}
+
         {error && (
           <div
             style={{
@@ -143,6 +173,7 @@ export const LoginPage: React.FC = () => {
             <span>{error}</span>
           </div>
         )}
+
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>

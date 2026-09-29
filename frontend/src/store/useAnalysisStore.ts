@@ -17,6 +17,7 @@ interface AnalysisState {
   selectAnalysis: (id: string) => Promise<void>;
   analyzeFile: (file: File) => Promise<AnalysisSummary>;
   clearCurrent: () => void;
+  clearAll: () => void;
   clearError: () => void;
 }
 
@@ -75,31 +76,25 @@ export const useAnalysisStore = create<AnalysisState>()(
         try {
           const data = await fetchAnalyses();
 
-          const normalized = data.map(
+          const normalized = (data || []).map(
             (item) => normalizeConfidence(item)!
           );
 
-          set((state) => ({
-            analyses:
-              normalized.length > 0
-                ? normalized
-                : state.analyses,
-
+          set({
+            analyses: normalized,
             currentAnalysis:
               normalized.length > 0
                 ? normalized[0]
-                : normalizeConfidence(state.currentAnalysis),
-
+                : null,
             isLoading: false,
             error: null,
-          }));
+          });
         } catch {
-          set((state) => ({
-            currentAnalysis: normalizeConfidence(
-              state.currentAnalysis
-            ),
+          set({
+            analyses: [],
+            currentAnalysis: null,
             isLoading: false,
-          }));
+          });
         }
       },
 
@@ -162,11 +157,21 @@ export const useAnalysisStore = create<AnalysisState>()(
           currentAnalysis: null,
         }),
 
+      clearAll: () => {
+        localStorage.removeItem('securemailscope_analysis_cache');
+        set({
+          analyses: [],
+          currentAnalysis: null,
+          error: null,
+        });
+      },
+
       clearError: () =>
         set({
           error: null,
         }),
     }),
+
     {
       name: 'securemailscope_analysis_cache',
 

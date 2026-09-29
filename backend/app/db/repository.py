@@ -507,8 +507,137 @@ class ForensicRepository:
             conn.close()
 
     @classmethod
-    def list_analyses(cls, include_archived: bool = False, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    def associate_user_analysis(
+        cls,
+        user_id: str,
+        analysis_id: str,
+        db_path: Optional[str] = None
+    ) -> bool:
+        """Associates an analysis with an authenticated user account without altering forensic hashes."""
+        if not user_id or not analysis_id:
+            return False
+        now_iso = datetime.now(timezone.utc).isoformat()
+        conn = get_db_connection(db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO user_analyses (user_id, analysis_id, created_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_id, analysis_id) DO NOTHING
+                """,
+                (user_id, analysis_id, now_iso)
+            )
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
+
+    @classmethod
+    def is_analysis_owned_by_user(
+        cls,
+        user_id: str,
+        analysis_id: str,
+        db_path: Optional[str] = None
+    ) -> bool:
+        """Checks if a user has access/ownership mapping for a specific analysis."""
+        if not user_id or not analysis_id:
+            return False
+        conn = get_db_connection(db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT 1 FROM user_analyses WHERE user_id = ? AND analysis_id = ? LIMIT 1",
+                (user_id, analysis_id)
+            )
+            row = cursor.fetchone()
+            return row is not None
+        finally:
+            conn.close()
+
+    @classmethod
+    def list_analyses_for_user(
+        cls,
+        user_id: str,
+        include_archived: bool = False,
+        db_path: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Lists historical analyses owned by/mapped to a specific user."""
+        if not user_id:
+            return []
+        conn = get_db_connection(db_path)
+        try:
+            cursor = conn.cursor()
+            query = """
+                SELECT a.analysis_id, a.filename, a.file_size_bytes, a.analysis_status, a.created_at,
+                       a.total_packets, a.email_sessions_found, a.evidence_confidence_score,
+                       a.evidence_confidence_level, a.security_grade, a.observed_result_sha256, a.is_archived
+                FROM analyses a
+                INNER JOIN user_analyses ua ON a.analysis_id = ua.analysis_id
+                WHERE ua.user_id = ?
+            """
+            if not include_archived:
+                query += " AND a.is_archived = 0"
+            query += " ORDER BY ua.created_at DESC"
+
+            cursor.execute(query, (user_id,))
+            rows = cursor.fetchall()
+
+            results = []
+            for r in rows:
+                results.append({
+                    "analysis_id": r["analysis_id"],
+                    "filename": r["filename"],
+                    "file_size_bytes": r["file_size_bytes"],
+                    "analysis_status": r["analysis_status"],
+                    "created_at": r["created_at"],
+                    "total_packets": r["total_packets"],
+                    "email_sessions_found": r["email_sessions_found"],
+                    "evidence_confidence_score": r["evidence_confidence_score"],
+                    "evidence_confidence_level": r["evidence_confidence_level"],
+                    "security_grade": r["security_grade"],
+                    "sha256_seal": r["observed_result_sha256"],
+                    "is_archived": bool(r["is_archived"]),
+                })
+            return results
+        finally:
+            conn.close()
+
+    @classmethod
+    def get_user_analysis_ids(
+        cls,
+        user_id: str,
+        db_path: Optional[str] = None
+    ) -> List[str]:
+        """Returns all analysis IDs associated with a user."""
+        if not user_id:
+            return []
+        conn = get_db_connection(db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT analysis_id FROM user_analyses WHERE user_id = ? ORDER BY created_at DESC",
+                (user_id,)
+            )
+            rows = cursor.fetchall()
+            return [str(r["analysis_id"] if isinstance(r, dict) or hasattr(r, "__getitem__") else r[0]) for r in rows]
+        finally:
+            conn.close()
+
+    @classmethod
+    def list_analyses(
+        cls,
+        include_archived: bool = False,
+        user_id: Optional[str] = None,
+        db_path: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """Lists historical analyses with summaries, timestamps, status, and grades."""
+        if user_id:
+            return cls.list_analyses_for_user(user_id=user_id, include_archived=include_archived, db_path=db_path)
+
         conn = get_db_connection(db_path)
         cursor = conn.cursor()
 

@@ -3,7 +3,7 @@ SecureMailScope X - Session Forensics & Drill-Down Endpoints
 """
 
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status, Depends
 from app.schemas.api import (
     SessionDetailDTO,
     SessionSummaryDTO,
@@ -11,6 +11,7 @@ from app.schemas.api import (
     SecurityFindingDTO
 )
 from app.services.analysis_service import AnalysisService
+from app.api.v1.endpoints.auth import get_optional_current_user
 
 router = APIRouter()
 
@@ -21,8 +22,12 @@ router = APIRouter()
     summary="List Sessions for an Analysis",
     description="Returns high-level summary cards for all email sessions reconstructed from the specified capture."
 )
-def list_sessions(analysis_id: str) -> List[SessionSummaryDTO]:
-    analysis = AnalysisService.get_analysis(analysis_id)
+def list_sessions(
+    analysis_id: str,
+    current_user: Optional[dict] = Depends(get_optional_current_user)
+) -> List[SessionSummaryDTO]:
+    user_id = current_user.get("id") if current_user else None
+    analysis = AnalysisService.get_analysis(analysis_id, user_id=user_id)
     if not analysis:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -57,8 +62,13 @@ def list_sessions(analysis_id: str) -> List[SessionSummaryDTO]:
     summary="Get Detailed Session Forensics",
     description="Returns full cryptographic parameters, STARTTLS/STLS state, Capture Health, Evidence Confidence, and findings for a specific session."
 )
-def get_session_detail(analysis_id: str, session_id: str) -> SessionDetailDTO:
-    session = AnalysisService.get_session(analysis_id, session_id)
+def get_session_detail(
+    analysis_id: str,
+    session_id: str,
+    current_user: Optional[dict] = Depends(get_optional_current_user)
+) -> SessionDetailDTO:
+    user_id = current_user.get("id") if current_user else None
+    session = AnalysisService.get_session(analysis_id, session_id, user_id=user_id)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -77,9 +87,11 @@ def get_session_packets(
     analysis_id: str,
     session_id: str,
     offset: int = Query(0, ge=0, description="Pagination offset"),
-    limit: int = Query(100, ge=1, le=500, description="Pagination limit")
+    limit: int = Query(100, ge=1, le=500, description="Pagination limit"),
+    current_user: Optional[dict] = Depends(get_optional_current_user)
 ) -> List[PacketEvidenceDTO]:
-    packets = AnalysisService.get_session_packets(analysis_id, session_id)
+    user_id = current_user.get("id") if current_user else None
+    packets = AnalysisService.get_session_packets(analysis_id, session_id, user_id=user_id)
     if packets is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -97,9 +109,11 @@ def get_session_packets(
 def get_session_findings(
     analysis_id: str,
     session_id: str,
-    severity: Optional[str] = Query(None, description="Optional severity filter (CRITICAL, HIGH, MEDIUM, LOW, INFO)")
+    severity: Optional[str] = Query(None, description="Optional severity filter (CRITICAL, HIGH, MEDIUM, LOW, INFO)"),
+    current_user: Optional[dict] = Depends(get_optional_current_user)
 ) -> List[SecurityFindingDTO]:
-    session = AnalysisService.get_session(analysis_id, session_id)
+    user_id = current_user.get("id") if current_user else None
+    session = AnalysisService.get_session(analysis_id, session_id, user_id=user_id)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

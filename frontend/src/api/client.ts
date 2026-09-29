@@ -28,19 +28,32 @@ export async function fetchHealth(): Promise<SystemHealth> {
   return res.json();
 }
 
-/**
- * The FastAPI backend processes captures in-memory per upload and exposes:
- * - POST /api/v1/analyze (file upload)
- * - GET  /api/v1/analyze/{analysis_id} (fetch report by ID)
- * There is no persistent list endpoint on the backend.
- * Returning [] safely represents no previous analyses on startup without triggering 404s.
- */
 export async function fetchAnalyses(): Promise<AnalysisSummary[]> {
-  return [];
+  try {
+    const res = await fetch(`${API_BASE}/analyses`, {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403 || res.status === 404) {
+        return [];
+      }
+      throw new Error(`Fetch analyses failed: ${res.status} ${res.statusText}`);
+    }
+    const data = await res.json();
+    if (!Array.isArray(data)) {
+      return [];
+    }
+    return data.map(normalizeAnalysis);
+  } catch (err) {
+    console.error('Failed to load analyses:', err);
+    return [];
+  }
 }
 
 export async function fetchAnalysisDetail(id: string): Promise<AnalysisSummary> {
-  const res = await fetch(`${API_BASE}/analyze/${id}`);
+  const res = await fetch(`${API_BASE}/analyze/${id}`, {
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) {
     throw new Error(`Fetch analysis detail failed: ${res.status} ${res.statusText}`);
   }
@@ -54,6 +67,7 @@ export async function uploadPCAP(file: File): Promise<AnalysisSummary> {
 
   const res = await fetch(`${API_BASE}/analyze`, {
     method: 'POST',
+    headers: getAuthHeaders(),
     body: formData,
   });
 
@@ -66,6 +80,7 @@ export async function uploadPCAP(file: File): Promise<AnalysisSummary> {
   const data = await res.json();
   return normalizeAnalysis(data);
 }
+
 
 /**
  * Normalizes backend AnalysisDetailResponse to frontend AnalysisSummary

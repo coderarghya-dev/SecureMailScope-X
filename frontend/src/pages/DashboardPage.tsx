@@ -370,6 +370,77 @@ export const DashboardPage: React.FC = () => {
       {/* Canonical Case Overview / Judge Demo Card */}
       <CaseOverviewCard />
 
+      {/* Workspace Empty State when no analyses in user workspace */}
+      {!currentAnalysis && analyses.length === 0 && (
+        <div
+          className="forensic-panel"
+          style={{
+            backgroundColor: 'var(--surface-elevated, #131b2e)',
+            border: '1px solid rgba(6, 182, 212, 0.25)',
+            padding: '32px 24px',
+            textAlign: 'center',
+            marginBottom: '16px',
+            borderRadius: '8px',
+          }}
+        >
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '48px',
+              height: '48px',
+              borderRadius: '12px',
+              backgroundColor: 'rgba(6, 182, 212, 0.1)',
+              border: '1px solid rgba(6, 182, 212, 0.3)',
+              marginBottom: '12px',
+            }}
+          >
+            <UploadCloud size={24} color="#06b6d4" />
+          </div>
+          <div
+            style={{
+              fontSize: '15px',
+              fontWeight: 700,
+              color: '#f8fafc',
+              marginBottom: '6px',
+              fontFamily: 'JetBrains Mono, monospace',
+            }}
+          >
+            No forensic cases in this workspace yet.
+          </div>
+          <div
+            style={{
+              fontSize: '12px',
+              color: 'var(--text-muted, #94a3b8)',
+              maxWidth: '480px',
+              margin: '0 auto 18px',
+              lineHeight: 1.5,
+            }}
+          >
+            Your analyst workspace is isolated and empty. Upload a packet capture (.pcap, .pcapng, .cap) to reconstruct email sessions, audit TLS handshakes, and verify post-quantum readiness.
+          </div>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="btn-primary"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 20px',
+              fontSize: '12px',
+              fontWeight: 600,
+              borderRadius: '4px',
+              cursor: 'pointer',
+            }}
+          >
+            <UploadCloud size={14} />
+            <span>Ingest PCAP</span>
+          </button>
+        </div>
+      )}
+
+
       {/* 12-Column Grid Workspace (Left 8 cols, Right 4 cols) */}
       <div className="grid-12col-workspace">
         {/* LEFT COLUMN: 8 Columns (~67%) */}

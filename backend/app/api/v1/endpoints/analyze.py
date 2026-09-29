@@ -25,6 +25,7 @@ from app.services.report_service import ReportService
 from app.services.custody_service import CustodyService
 from app.db.repository import ForensicRepository, IntegrityVerificationError
 from app.services.case_service import CaseService
+from app.api.v1.endpoints.auth import get_optional_current_user
 
 
 router = APIRouter()
@@ -41,6 +42,7 @@ async def analyze_pcap_upload(
     file: UploadFile = File(...),
     x_analyst_id: Optional[str] = Header(None, alias="X-Analyst-ID"),
     x_analyst_name: Optional[str] = Header(None, alias="X-Analyst-Name"),
+    current_user: Optional[dict] = Depends(get_optional_current_user),
 ) -> AnalysisDetailResponse:
     if not file.filename:
         raise HTTPException(
@@ -49,6 +51,7 @@ async def analyze_pcap_upload(
         )
 
     actor = ActorContext.from_headers(x_analyst_id=x_analyst_id, x_analyst_name=x_analyst_name)
+    user_id = current_user.get("id") if current_user else None
 
     try:
         content = await file.read()
@@ -59,7 +62,7 @@ async def analyze_pcap_upload(
         )
 
     try:
-        report = AnalysisService.process_pcap_bytes(file.filename, content, actor=actor)
+        report = AnalysisService.process_pcap_bytes(file.filename, content, actor=actor, user_id=user_id)
         return report
     except ValueError as val_err:
         raise HTTPException(
@@ -84,8 +87,12 @@ class AnalysisNoteRequest(BaseModel):
     summary="List Historical Analyses",
     description="Lists all persisted forensic analyses with metadata, SHA-256 seals, session counts, and security grades."
 )
-def list_analyses(include_archived: bool = False) -> List[Dict[str, Any]]:
-    return AnalysisService.list_analyses(include_archived=include_archived)
+def list_analyses(
+    include_archived: bool = False,
+    current_user: Optional[dict] = Depends(get_optional_current_user)
+) -> List[Dict[str, Any]]:
+    user_id = current_user.get("id") if current_user else None
+    return AnalysisService.list_analyses(include_archived=include_archived, user_id=user_id)
 
 
 @router.get(
@@ -99,8 +106,12 @@ def list_analyses(include_archived: bool = False) -> List[Dict[str, Any]]:
     response_model=AnalysisDetailResponse,
     include_in_schema=False
 )
-def get_analysis_by_id(analysis_id: str) -> AnalysisDetailResponse:
-    report = AnalysisService.get_analysis(analysis_id)
+def get_analysis_by_id(
+    analysis_id: str,
+    current_user: Optional[dict] = Depends(get_optional_current_user)
+) -> AnalysisDetailResponse:
+    user_id = current_user.get("id") if current_user else None
+    report = AnalysisService.get_analysis(analysis_id, user_id=user_id)
     if not report:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -119,7 +130,13 @@ def add_analysis_note(
     req: AnalysisNoteRequest,
     x_analyst_id: Optional[str] = Header(None, alias="X-Analyst-ID"),
     x_analyst_name: Optional[str] = Header(None, alias="X-Analyst-Name"),
+    current_user: Optional[dict] = Depends(get_optional_current_user)
 ) -> Dict[str, Any]:
+    user_id = current_user.get("id") if current_user else None
+    analysis = AnalysisService.get_analysis(analysis_id, user_id=user_id)
+    if not analysis:
+        raise HTTPException(status_code=404, detail=f"Analysis '{analysis_id}' not found.")
+
     actor = ActorContext.from_headers(x_analyst_id=x_analyst_id, x_analyst_name=x_analyst_name)
     if actor.attribution_status == "UNATTRIBUTED" and (req.analyst_id or req.author):
         actor = ActorContext(
@@ -146,8 +163,12 @@ def add_analysis_note(
     summary="Get Analyst Notes for Analysis",
     description="Retrieves the chronological, append-only analyst notes log for this analysis."
 )
-def get_analysis_notes(analysis_id: str) -> List[Dict[str, Any]]:
-    analysis = AnalysisService.get_analysis(analysis_id)
+def get_analysis_notes(
+    analysis_id: str,
+    current_user: Optional[dict] = Depends(get_optional_current_user)
+) -> List[Dict[str, Any]]:
+    user_id = current_user.get("id") if current_user else None
+    analysis = AnalysisService.get_analysis(analysis_id, user_id=user_id)
     if not analysis:
         raise HTTPException(status_code=404, detail=f"Analysis '{analysis_id}' not found.")
     return ForensicRepository.get_analyst_notes("ANALYSIS", analysis_id)
@@ -158,8 +179,12 @@ def get_analysis_notes(analysis_id: str) -> List[Dict[str, Any]]:
     summary="Get Analysis History & Provenance",
     description="Returns full audit event trail and provenance record for this analysis."
 )
-def get_analysis_history(analysis_id: str) -> Dict[str, Any]:
-    analysis = AnalysisService.get_analysis(analysis_id)
+def get_analysis_history(
+    analysis_id: str,
+    current_user: Optional[dict] = Depends(get_optional_current_user)
+) -> Dict[str, Any]:
+    user_id = current_user.get("id") if current_user else None
+    analysis = AnalysisService.get_analysis(analysis_id, user_id=user_id)
     if not analysis:
         raise HTTPException(status_code=404, detail=f"Analysis '{analysis_id}' not found.")
     custody = CustodyService.verify_integrity(analysis_id)
@@ -186,8 +211,12 @@ def get_analysis_history(analysis_id: str) -> Dict[str, Any]:
     response_model=ForensicReportResponse,
     include_in_schema=False
 )
-def get_forensic_report_by_id(analysis_id: str) -> ForensicReportResponse:
-    analysis = AnalysisService.get_analysis(analysis_id)
+def get_forensic_report_by_id(
+    analysis_id: str,
+    current_user: Optional[dict] = Depends(get_optional_current_user)
+) -> ForensicReportResponse:
+    user_id = current_user.get("id") if current_user else None
+    analysis = AnalysisService.get_analysis(analysis_id, user_id=user_id)
     if not analysis:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -209,8 +238,12 @@ def get_forensic_report_by_id(analysis_id: str) -> ForensicReportResponse:
     "/analyses/{analysis_id}/pdf",
     include_in_schema=False
 )
-def export_forensic_report_pdf(analysis_id: str):
-    analysis = AnalysisService.get_analysis(analysis_id)
+def export_forensic_report_pdf(
+    analysis_id: str,
+    current_user: Optional[dict] = Depends(get_optional_current_user)
+):
+    user_id = current_user.get("id") if current_user else None
+    analysis = AnalysisService.get_analysis(analysis_id, user_id=user_id)
     if not analysis:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -248,8 +281,12 @@ def export_forensic_report_pdf(analysis_id: str):
     "/analyses/{analysis_id}/json",
     include_in_schema=False
 )
-def export_forensic_report_json(analysis_id: str):
-    analysis = AnalysisService.get_analysis(analysis_id)
+def export_forensic_report_json(
+    analysis_id: str,
+    current_user: Optional[dict] = Depends(get_optional_current_user)
+):
+    user_id = current_user.get("id") if current_user else None
+    analysis = AnalysisService.get_analysis(analysis_id, user_id=user_id)
     if not analysis:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -291,13 +328,18 @@ def export_forensic_report_json(analysis_id: str):
     "/analyses/{analysis_id}/report/html",
     include_in_schema=False
 )
-def export_forensic_report_html(analysis_id: str):
-    analysis = AnalysisService.get_analysis(analysis_id)
+def export_forensic_report_html(
+    analysis_id: str,
+    current_user: Optional[dict] = Depends(get_optional_current_user)
+):
+    user_id = current_user.get("id") if current_user else None
+    analysis = AnalysisService.get_analysis(analysis_id, user_id=user_id)
     if not analysis:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Analysis report '{analysis_id}' not found."
         )
+
     try:
         html_str = ReportService.generate_html_str(analysis)
         clean_filename = analysis.file_name.rsplit(".", 1)[0]
@@ -328,8 +370,12 @@ def export_forensic_report_html(analysis_id: str):
     response_model=CustodyRecordResponse,
     include_in_schema=False
 )
-def get_analysis_custody(analysis_id: str) -> CustodyRecordResponse:
-    analysis = AnalysisService.get_analysis(analysis_id)
+def get_analysis_custody(
+    analysis_id: str,
+    current_user: Optional[dict] = Depends(get_optional_current_user)
+) -> CustodyRecordResponse:
+    user_id = current_user.get("id") if current_user else None
+    analysis = AnalysisService.get_analysis(analysis_id, user_id=user_id)
     if not analysis:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -349,8 +395,12 @@ def get_analysis_custody(analysis_id: str) -> CustodyRecordResponse:
     response_model=CustodyRecordResponse,
     include_in_schema=False
 )
-def verify_analysis_custody(analysis_id: str) -> CustodyRecordResponse:
-    analysis = AnalysisService.get_analysis(analysis_id)
+def verify_analysis_custody(
+    analysis_id: str,
+    current_user: Optional[dict] = Depends(get_optional_current_user)
+) -> CustodyRecordResponse:
+    user_id = current_user.get("id") if current_user else None
+    analysis = AnalysisService.get_analysis(analysis_id, user_id=user_id)
     if not analysis:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -372,9 +422,11 @@ def verify_analysis_custody(analysis_id: str) -> CustodyRecordResponse:
 )
 def tamper_demo_custody(
     analysis_id: str,
-    target: str = Query("capture", enum=["capture", "manifest", "event", "restore"], description="Target artifact to tamper in test copy")
+    target: str = Query("capture", enum=["capture", "manifest", "event", "restore"], description="Target artifact to tamper in test copy"),
+    current_user: Optional[dict] = Depends(get_optional_current_user)
 ) -> CustodyRecordResponse:
-    analysis = AnalysisService.get_analysis(analysis_id)
+    user_id = current_user.get("id") if current_user else None
+    analysis = AnalysisService.get_analysis(analysis_id, user_id=user_id)
     if not analysis:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -422,8 +474,12 @@ def tamper_demo_custody(
     response_model=List[CustodyManifestVersionDTO],
     include_in_schema=False
 )
-def list_analysis_manifests(analysis_id: str) -> List[CustodyManifestVersionDTO]:
-    analysis = AnalysisService.get_analysis(analysis_id)
+def list_analysis_manifests(
+    analysis_id: str,
+    current_user: Optional[dict] = Depends(get_optional_current_user)
+) -> List[CustodyManifestVersionDTO]:
+    user_id = current_user.get("id") if current_user else None
+    analysis = AnalysisService.get_analysis(analysis_id, user_id=user_id)
     if not analysis:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -444,8 +500,12 @@ def list_analysis_manifests(analysis_id: str) -> List[CustodyManifestVersionDTO]
     response_model=ManifestChainVerificationResponse,
     include_in_schema=False
 )
-def verify_analysis_manifest_chain(analysis_id: str) -> ManifestChainVerificationResponse:
-    analysis = AnalysisService.get_analysis(analysis_id)
+def verify_analysis_manifest_chain(
+    analysis_id: str,
+    current_user: Optional[dict] = Depends(get_optional_current_user)
+) -> ManifestChainVerificationResponse:
+    user_id = current_user.get("id") if current_user else None
+    analysis = AnalysisService.get_analysis(analysis_id, user_id=user_id)
     if not analysis:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -466,8 +526,13 @@ def verify_analysis_manifest_chain(analysis_id: str) -> ManifestChainVerificatio
     response_model=CustodyManifestVersionDTO,
     include_in_schema=False
 )
-def get_analysis_manifest_version(analysis_id: str, version: str) -> CustodyManifestVersionDTO:
-    analysis = AnalysisService.get_analysis(analysis_id)
+def get_analysis_manifest_version(
+    analysis_id: str,
+    version: str,
+    current_user: Optional[dict] = Depends(get_optional_current_user)
+) -> CustodyManifestVersionDTO:
+    user_id = current_user.get("id") if current_user else None
+    analysis = AnalysisService.get_analysis(analysis_id, user_id=user_id)
     if not analysis:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -493,8 +558,12 @@ def get_analysis_manifest_version(analysis_id: str, version: str) -> CustodyMani
     response_model=List[ReportArtifactDTO],
     include_in_schema=False
 )
-def list_analysis_reports(analysis_id: str) -> List[ReportArtifactDTO]:
-    analysis = AnalysisService.get_analysis(analysis_id)
+def list_analysis_reports(
+    analysis_id: str,
+    current_user: Optional[dict] = Depends(get_optional_current_user)
+) -> List[ReportArtifactDTO]:
+    user_id = current_user.get("id") if current_user else None
+    analysis = AnalysisService.get_analysis(analysis_id, user_id=user_id)
     if not analysis:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -516,9 +585,11 @@ def list_analysis_reports(analysis_id: str) -> List[ReportArtifactDTO]:
 def get_analysis_report_artifact(
     analysis_id: str,
     report_artifact_id: str,
-    download: bool = Query(False, description="Whether to download raw PDF binary bytes")
+    download: bool = Query(False, description="Whether to download raw PDF binary bytes"),
+    current_user: Optional[dict] = Depends(get_optional_current_user)
 ):
-    analysis = AnalysisService.get_analysis(analysis_id)
+    user_id = current_user.get("id") if current_user else None
+    analysis = AnalysisService.get_analysis(analysis_id, user_id=user_id)
     if not analysis:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -575,8 +646,10 @@ def sign_analysis_report(
     req: Optional[ReportSignatureRequest] = None,
     x_analyst_id: Optional[str] = Header(None, alias="X-Analyst-ID"),
     x_analyst_name: Optional[str] = Header(None, alias="X-Analyst-Name"),
+    current_user: Optional[dict] = Depends(get_optional_current_user)
 ) -> DigitalSignatureDTO:
-    analysis = AnalysisService.get_analysis(analysis_id)
+    user_id = current_user.get("id") if current_user else None
+    analysis = AnalysisService.get_analysis(analysis_id, user_id=user_id)
     if not analysis:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -634,8 +707,13 @@ def sign_analysis_report(
     response_model=ReportSignaturesListResponse,
     include_in_schema=False
 )
-def list_report_signatures(analysis_id: str, report_artifact_id: str) -> ReportSignaturesListResponse:
-    analysis = AnalysisService.get_analysis(analysis_id)
+def list_report_signatures(
+    analysis_id: str,
+    report_artifact_id: str,
+    current_user: Optional[dict] = Depends(get_optional_current_user)
+) -> ReportSignaturesListResponse:
+    user_id = current_user.get("id") if current_user else None
+    analysis = AnalysisService.get_analysis(analysis_id, user_id=user_id)
     if not analysis:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -698,8 +776,10 @@ def notarize_analysis_report(
     req: Optional[NotarizationRequest] = None,
     x_analyst_id: Optional[str] = Header(None, alias="X-Analyst-ID"),
     x_analyst_name: Optional[str] = Header(None, alias="X-Analyst-Name"),
+    current_user: Optional[dict] = Depends(get_optional_current_user)
 ) -> NotarizationRecordDTO:
-    analysis = AnalysisService.get_analysis(analysis_id)
+    user_id = current_user.get("id") if current_user else None
+    analysis = AnalysisService.get_analysis(analysis_id, user_id=user_id)
     if not analysis:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -761,9 +841,11 @@ def notarize_analysis_report(
 )
 def list_analysis_notarizations(
     analysis_id: str,
-    report_artifact_id: Optional[str] = None
+    report_artifact_id: Optional[str] = None,
+    current_user: Optional[dict] = Depends(get_optional_current_user)
 ) -> AnalysisNotarizationsListResponse:
-    analysis = AnalysisService.get_analysis(analysis_id)
+    user_id = current_user.get("id") if current_user else None
+    analysis = AnalysisService.get_analysis(analysis_id, user_id=user_id)
     if not analysis:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -776,6 +858,7 @@ def list_analysis_notarizations(
         total_notarizations=len(records),
         notarizations=[NotarizationRecordDTO(**r) for r in records]
     )
+
 
 
 @router.get(

@@ -97,6 +97,22 @@ async def get_current_user(
     return user
 
 
+async def get_optional_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+) -> Optional[dict]:
+    """
+    Extracts authenticated user from Bearer JWT token if present, returns None if unauthenticated.
+    """
+    if not credentials or not credentials.credentials:
+        return None
+    token = credentials.credentials
+    payload = decode_access_token(token)
+    if not payload or "sub" not in payload:
+        return None
+    user_id = payload["sub"]
+    return UserRepository.get_user_by_id(user_id)
+
+
 # =====================================================================
 # API Endpoints
 # =====================================================================

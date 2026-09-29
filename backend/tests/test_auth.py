@@ -183,6 +183,151 @@ class TestAuthService(unittest.TestCase):
         self.assertIsInstance(user_resp.created_at, str)
         self.assertEqual(user_resp.created_at, dt_now.isoformat())
 
+    def test_11_user_workspace_isolation_and_ownership(self):
+        """Verify User A analysis is isolated and inaccessible to User B."""
+        # 1. Register User A & User B
+        res_a = self.client.post(
+            "/api/v1/auth/register",
+            json={"name": "Alice Analyst", "email": "alice@cyber.gov", "password": "AliceSecretPassword123"}
+        )
+        self.assertEqual(res_a.status_code, 201)
+        token_a = res_a.json()["access_token"]
+        user_a_id = res_a.json()["user"]["id"]
+
+        res_b = self.client.post(
+            "/api/v1/auth/register",
+            json={"name": "Bob Analyst", "email": "bob@cyber.gov", "password": "BobSecretPassword123"}
+        )
+        self.assertEqual(res_b.status_code, 201)
+        token_b = res_b.json()["access_token"]
+        user_b_id = res_b.json()["user"]["id"]
+
+        # 2. User B has empty analysis list initially
+        b_list = self.client.get("/api/v1/analyses", headers={"Authorization": f"Bearer {token_b}"})
+        self.assertEqual(b_list.status_code, 200)
+        self.assertEqual(b_list.json(), [])
+
+        # 3. User A uploads/analyzes a synthetic PCAP
+        dummy_pcap = b"\xd4\xc3\xb2\xa1\x02\x00\x04\x00" + b"\x00" * 32
+        res_upload = self.client.post(
+            "/api/v1/analyze",
+            files={"file": ("alice_evidence.pcap", dummy_pcap, "application/octet-stream")},
+            headers={"Authorization": f"Bearer {token_a}"}
+        )
+        self.assertEqual(res_upload.status_code, 200)
+        analysis_id = res_upload.json()["analysis_id"]
+
+        # 4. User A sees analysis in their list and can retrieve it
+        a_list = self.client.get("/api/v1/analyses", headers={"Authorization": f"Bearer {token_a}"})
+        self.assertEqual(a_list.status_code, 200)
+        self.assertEqual(len(a_list.json()), 1)
+        self.assertEqual(a_list.json()[0]["analysis_id"], analysis_id)
+
+        a_detail = self.client.get(f"/api/v1/analyze/{analysis_id}", headers={"Authorization": f"Bearer {token_a}"})
+        self.assertEqual(a_detail.status_code, 200)
+        self.assertEqual(a_detail.json()["analysis_id"], analysis_id)
+
+        # 5. User B still has empty analysis list
+        b_list2 = self.client.get("/api/v1/analyses", headers={"Authorization": f"Bearer {token_b}"})
+        self.assertEqual(b_list2.status_code, 200)
+        self.assertEqual(b_list2.json(), [])
+
+        # 6. User B cannot retrieve User A's analysis (clean 404)
+        b_detail = self.client.get(f"/api/v1/analyze/{analysis_id}", headers={"Authorization": f"Bearer {token_b}"})
+        self.assertEqual(b_detail.status_code, 404)
+
+        # 7. User B cannot access PDF, JSON, HTML exports of User A's analysis (404)
+        b_pdf = self.client.get(f"/api/v1/analyze/{analysis_id}/pdf", headers={"Authorization": f"Bearer {token_b}"})
+        self.assertEqual(b_pdf.status_code, 404)
+
+        b_json = self.client.get(f"/api/v1/analyze/{analysis_id}/export/json", headers={"Authorization": f"Bearer {token_b}"})
+        self.assertEqual(b_json.status_code, 404)
+
+        b_html = self.client.get(f"/api/v1/analyze/{analysis_id}/export/html", headers={"Authorization": f"Bearer {token_b}"})
+        self.assertEqual(b_html.status_code, 404)
+
+        # 8. User B cannot access sessions, custody, or reports of User A's analysis (404)
+        b_sessions = self.client.get(f"/api/v1/analyses/{analysis_id}/sessions", headers={"Authorization": f"Bearer {token_b}"})
+        self.assertEqual(b_sessions.status_code, 404)
+
+        b_custody = self.client.get(f"/api/v1/analyses/{analysis_id}/custody", headers={"Authorization": f"Bearer {token_b}"})
+        self.assertEqual(b_custody.status_code, 404)
+
+        b_report = self.client.get(f"/api/v1/analyses/{analysis_id}/report", headers={"Authorization": f"Bearer {token_b}"})
+        self.assertEqual(b_report.status_code, 404)
+
+    def test_12_same_analysis_mapping_does_not_duplicate_evidence_and_preserves_custody(self):
+        """Verify uploading the same capture by User B maps ownership without mutating evidence or custody hashes."""
+        # Login User A and User B
+        res_a = self.client.post("/api/v1/auth/login", json={"email": "alice@cyber.gov", "password": "AliceSecretPassword123"})
+        token_a = res_a.json()["access_token"]
+        res_b = self.client.post("/api/v1/auth/login", json={"email": "bob@cyber.gov", "password": "BobSecretPassword123"})
+        token_b = res_b.json()["access_token"]
+
+        dummy_pcap = b"\xd4\xc3\xb2\xa1\x02\x00\x04\x00" + b"\x00" * 32
+
+        # User A custody record
+        a_list = self.client.get("/api/v1/analyses", headers={"Authorization": f"Bearer {token_a}"})
+        analysis_id = a_list.json()[0]["analysis_id"]
+
+        custody_before = self.client.get(f"/api/v1/analyses/{analysis_id}/custody", headers={"Authorization": f"Bearer {token_a}"}).json()
+        seal_before = custody_before["capture_integrity"]["sha256"]
+        manifest_hash_before = custody_before["manifest_integrity"]["manifest_hash"]
+
+        # User B uploads identical PCAP
+        res_upload_b = self.client.post(
+            "/api/v1/analyze",
+            files={"file": ("bob_copy.pcap", dummy_pcap, "application/octet-stream")},
+            headers={"Authorization": f"Bearer {token_b}"}
+        )
+        self.assertEqual(res_upload_b.status_code, 200)
+        self.assertEqual(res_upload_b.json()["analysis_id"], analysis_id)
+
+        # User B now has the analysis mapped in their workspace
+        b_list = self.client.get("/api/v1/analyses", headers={"Authorization": f"Bearer {token_b}"})
+        self.assertEqual(len(b_list.json()), 1)
+        self.assertEqual(b_list.json()[0]["analysis_id"], analysis_id)
+
+        # Custody seal and manifest hash remain EXACTLY the same
+        custody_after = self.client.get(f"/api/v1/analyses/{analysis_id}/custody", headers={"Authorization": f"Bearer {token_b}"}).json()
+        self.assertEqual(custody_after["capture_integrity"]["sha256"], seal_before)
+        self.assertEqual(custody_after["manifest_integrity"]["manifest_hash"], manifest_hash_before)
+        self.assertEqual(custody_after["overall_status"], "VERIFIED")
+
+
+
+    def test_13_repository_ownership_methods_direct(self):
+        """Directly verify repository ownership helper functions."""
+        from app.db.repository import ForensicRepository
+
+        # Create user in database
+        u = UserRepository.create_user(name="Direct User", email="direct@soc.gov", password_hash="hash123", db_path=self.test_db_path)
+        user_id = u["id"]
+
+        # Get existing analysis id from earlier test
+        all_analyses = ForensicRepository.list_analyses(db_path=self.test_db_path)
+        self.assertTrue(len(all_analyses) > 0)
+        analysis_id = all_analyses[0]["analysis_id"]
+
+        # Initially not owned by new user
+        self.assertFalse(ForensicRepository.is_analysis_owned_by_user(user_id, analysis_id, self.test_db_path))
+        self.assertNotIn(analysis_id, ForensicRepository.get_user_analysis_ids(user_id, self.test_db_path))
+
+        # Associate
+        ok = ForensicRepository.associate_user_analysis(user_id, analysis_id, self.test_db_path)
+        self.assertTrue(ok)
+
+        # Now owned
+        self.assertTrue(ForensicRepository.is_analysis_owned_by_user(user_id, analysis_id, self.test_db_path))
+        self.assertIn(analysis_id, ForensicRepository.get_user_analysis_ids(user_id, self.test_db_path))
+
+        # Idempotent re-association
+        ok2 = ForensicRepository.associate_user_analysis(user_id, analysis_id, self.test_db_path)
+        self.assertTrue(ok2)
+        self.assertTrue(ForensicRepository.is_analysis_owned_by_user(user_id, analysis_id, self.test_db_path))
+
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { getApiUrl } from '../api/client';
+import { useAnalysisStore } from './useAnalysisStore';
 
 export interface AuthUser {
   id: string;
@@ -26,13 +27,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   login: (token: string, user: AuthUser) => {
     localStorage.setItem('sms_auth_token', token);
+    useAnalysisStore.getState().clearAll();
     set({ token, user, isAuthenticated: true, isLoading: false });
   },
 
   logout: () => {
     localStorage.removeItem('sms_auth_token');
+    useAnalysisStore.getState().clearAll();
     set({ token: null, user: null, isAuthenticated: false, isLoading: false });
   },
+
 
   checkAuth: async () => {
     const token = localStorage.getItem('sms_auth_token');
