@@ -80,15 +80,57 @@ export const useAnalysisStore = create<AnalysisState>()(
             (item) => normalizeConfidence(item)!
           );
 
-          set({
-            analyses: normalized,
-            currentAnalysis:
-              normalized.length > 0
-                ? normalized[0]
-                : null,
-            isLoading: false,
-            error: null,
-          });
+          if (normalized.length === 0) {
+            set({
+              analyses: [],
+              currentAnalysis: null,
+              isLoading: false,
+              error: null,
+            });
+            return;
+          }
+
+          const state = useAnalysisStore.getState();
+          const existingCurrent = state.currentAnalysis;
+
+          // Check if existingCurrent is still valid in user's analyses list and already has full details (streams populated)
+          const isCurrentValid =
+            existingCurrent &&
+            Array.isArray(existingCurrent.streams) &&
+            existingCurrent.streams.length > 0 &&
+            normalized.some((a) => a.analysis_id === existingCurrent.analysis_id);
+
+          if (isCurrentValid) {
+            set({
+              analyses: normalized,
+              isLoading: false,
+              error: null,
+            });
+          } else {
+            // Need to fetch full detail for the target analysis
+            const targetId =
+              existingCurrent && normalized.some((a) => a.analysis_id === existingCurrent.analysis_id)
+                ? existingCurrent.analysis_id
+                : normalized[0].analysis_id;
+
+            try {
+              const fullDetail = await fetchAnalysisDetail(targetId);
+              set({
+                analyses: normalized,
+                currentAnalysis: normalizeConfidence(fullDetail),
+                isLoading: false,
+                error: null,
+              });
+            } catch {
+              // Fallback to summary item only if detail fetch fails
+              set({
+                analyses: normalized,
+                currentAnalysis: normalized[0],
+                isLoading: false,
+                error: null,
+              });
+            }
+          }
         } catch {
           set({
             analyses: [],

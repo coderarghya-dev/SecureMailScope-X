@@ -326,8 +326,63 @@ class TestAuthService(unittest.TestCase):
         self.assertTrue(ok2)
         self.assertTrue(ForensicRepository.is_analysis_owned_by_user(user_id, analysis_id, self.test_db_path))
 
+    def test_14_existing_analysis_hydration_and_deduplication_multi_user(self):
+        """Verify that when User B accesses an existing/deduplicated analysis, both User A and User B receive identical complete forensic evidence without partial/default placeholders."""
+        # 1. Login User A and User B
+        res_a = self.client.post("/api/v1/auth/login", json={"email": "alice@cyber.gov", "password": "AliceSecretPassword123"})
+        token_a = res_a.json()["access_token"]
+        res_b = self.client.post("/api/v1/auth/login", json={"email": "bob@cyber.gov", "password": "BobSecretPassword123"})
+        token_b = res_b.json()["access_token"]
+
+        # 2. Upload capture as User A (or use existing sample)
+        dummy_pcap = b"\xd4\xc3\xb2\xa1\x02\x00\x04\x00" + b"\x00" * 32
+        res_upload_a = self.client.post(
+            "/api/v1/analyze",
+            files={"file": ("shared_sample.pcap", dummy_pcap, "application/octet-stream")},
+            headers={"Authorization": f"Bearer {token_a}"}
+        )
+        self.assertEqual(res_upload_a.status_code, 200)
+        report_a = res_upload_a.json()
+        analysis_id = report_a["analysis_id"]
+
+        # 3. User B uploads the same PCAP (deduplication / existing analysis path)
+        res_upload_b = self.client.post(
+            "/api/v1/analyze",
+            files={"file": ("shared_sample_copy.pcap", dummy_pcap, "application/octet-stream")},
+            headers={"Authorization": f"Bearer {token_b}"}
+        )
+        self.assertEqual(res_upload_b.status_code, 200)
+        report_b_upload = res_upload_b.json()
+        self.assertEqual(report_b_upload["analysis_id"], analysis_id)
+
+        # 4. Fetch detail as User A and User B via GET /api/v1/analyze/{analysis_id}
+        detail_a = self.client.get(f"/api/v1/analyze/{analysis_id}", headers={"Authorization": f"Bearer {token_a}"})
+        self.assertEqual(detail_a.status_code, 200)
+        json_a = detail_a.json()
+
+        detail_b = self.client.get(f"/api/v1/analyze/{analysis_id}", headers={"Authorization": f"Bearer {token_b}"})
+        self.assertEqual(detail_b.status_code, 200)
+        json_b = detail_b.json()
+
+        # 5. Verify all forensic fields are 100% identical and fully hydrated
+        self.assertEqual(json_a["analysis_id"], json_b["analysis_id"])
+        self.assertEqual(json_a["total_packets_extracted"], json_b["total_packets_extracted"])
+        self.assertEqual(json_a["email_sessions_found"], json_b["email_sessions_found"])
+        self.assertEqual(json_a["evidence_confidence_score"], json_b["evidence_confidence_score"])
+        self.assertEqual(json_a["evidence_confidence_level"], json_b["evidence_confidence_level"])
+        self.assertEqual(json_a["sessions"], json_b["sessions"])
+        self.assertEqual(json_a["correlated_incidents"], json_b["correlated_incidents"])
+
+        # 6. Verify custody records and hashes are completely identical and unmutated
+        custody_a = self.client.get(f"/api/v1/analyses/{analysis_id}/custody", headers={"Authorization": f"Bearer {token_a}"}).json()
+        custody_b = self.client.get(f"/api/v1/analyses/{analysis_id}/custody", headers={"Authorization": f"Bearer {token_b}"}).json()
+        self.assertEqual(custody_a["capture_integrity"]["sha256"], custody_b["capture_integrity"]["sha256"])
+        self.assertEqual(custody_a["manifest_integrity"]["manifest_hash"], custody_b["manifest_integrity"]["manifest_hash"])
+        self.assertEqual(custody_a["overall_status"], "VERIFIED")
+        self.assertEqual(custody_b["overall_status"], "VERIFIED")
 
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
 

@@ -236,7 +236,7 @@ function normalizeAnalysis(detail: any): AnalysisSummary {
       : 100;
 
   const primaryGrade =
-    sessions[0]?.security_assessment?.grade || (sessions.length > 0 ? 'B' : 'N/A');
+    sessions[0]?.security_assessment?.grade || detail.security_grade || (sessions.length > 0 ? 'B' : 'N/A');
 
   const gradeScoreMap: Record<string, number> = { A: 95, B: 82, C: 68, D: 55, F: 35 };
 
