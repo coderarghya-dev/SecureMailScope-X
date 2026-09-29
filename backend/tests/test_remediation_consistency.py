@@ -187,6 +187,50 @@ class TestRemediationConsistency(unittest.TestCase):
         self.assertEqual(res.items[0].remediation_id, "ENABLE_HYBRID_PQC")
         self.assertEqual(res.items[0].finding_code, "FINDING-PQC-CLASSICAL-KEX-EXPOSURE")
 
+    def test_06_no_unsupported_forward_secrecy_claims(self):
+        """Playbook must not claim verified PFS when passive evidence is unknown/unverified."""
+        req = PlaybookGenerationRequest(
+            platform=RemediationPlatform.POSTFIX,
+            finding_codes=["FINDING-TLS-1.3-NEGOTIATED"],
+        )
+        res = RemediationService.generate_playbook(req, db_path=self.db_path)
+        self.assertEqual(res.total_recommendations, 1)
+        item = res.items[0]
+        # Must contain bounded wording about PFS
+        self.assertIn("Forward secrecy cannot be verified from the available passive evidence", item.expected_security_effect)
+        # Must not make unconditional verified PFS claims for TLS 1.3 alone
+        self.assertNotIn("forward secrecy is preserved", item.expected_security_effect.lower())
+
+    def test_07_tls_recommendation_matches_protocol_floor(self):
+        """Playbook recommendation text and title must match configured protocol floor (>=TLSv1.2)."""
+        req = PlaybookGenerationRequest(
+            platform=RemediationPlatform.POSTFIX,
+            finding_codes=["FINDING-TLS-1.3-NEGOTIATED"],
+        )
+        res = RemediationService.generate_playbook(req, db_path=self.db_path)
+        item = res.items[0]
+        self.assertIn("TLS 1.2", item.action_title)
+        self.assertIn("TLS 1.3 Preferred", item.action_title)
+        self.assertIn("smtpd_tls_mandatory_protocols = >=TLSv1.2", item.config_snippet)
+
+    def test_08_generated_commands_explicitly_marked_advisory_manual(self):
+        """All configuration snippets must mark commands as manual advisory actions (NOT executed)."""
+        platforms = [
+            RemediationPlatform.POSTFIX,
+            RemediationPlatform.EXIM,
+            RemediationPlatform.DOVECOT,
+            RemediationPlatform.SENDMAIL,
+        ]
+        for plat in platforms:
+            req = PlaybookGenerationRequest(platform=plat, finding_codes=[])
+            res = RemediationService.generate_playbook(req, db_path=self.db_path)
+            for item in res.items:
+                # Must NOT contain unqualified active '# Execute:'
+                self.assertNotIn("# Execute:", item.config_snippet)
+                # If command instructions exist, they must be marked manual and not executed
+                if "reload" in item.config_snippet or "restart" in item.config_snippet or "make" in item.config_snippet:
+                    self.assertIn("Manual action after human review (NOT executed by SecureMailScope X)", item.config_snippet)
+
 
 if __name__ == "__main__":
     unittest.main()

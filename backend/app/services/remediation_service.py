@@ -63,19 +63,19 @@ PLAYBOOK_TEMPLATES: Dict[str, Dict[str, Any]] = {
                 "smtp_tls_mandatory_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1\n"
                 "smtp_tls_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1\n"
                 "smtpd_tls_security_level = may\n"
-                "# Execute: postfix reload"
+                "# Manual action after human review (NOT executed by SecureMailScope X): postfix reload"
             ),
             RemediationPlatform.EXIM: (
                 "# /etc/exim4/exim4.conf.template\n"
                 "tls_require_ciphers = DEFAULT:!SSLv2:!SSLv3:!TLSv1:!TLSv1.1\n"
                 "openssl_options = +no_sslv2 +no_sslv3 +no_tlsv1 +no_tlsv1_1\n"
-                "# Execute: update-exim4.conf && systemctl restart exim4"
+                "# Manual action after human review (NOT executed by SecureMailScope X): update-exim4.conf && systemctl restart exim4"
             ),
             RemediationPlatform.DOVECOT: (
                 "# /etc/dovecot/conf.d/10-ssl.conf\n"
                 "ssl = required\n"
                 "ssl_min_protocol = TLSv1.2\n"
-                "# Execute: systemctl reload dovecot"
+                "# Manual action after human review (NOT executed by SecureMailScope X): systemctl reload dovecot"
             ),
             RemediationPlatform.SENDMAIL: (
                 "# /etc/mail/sendmail.mc\n"
@@ -83,7 +83,7 @@ PLAYBOOK_TEMPLATES: Dict[str, Dict[str, Any]] = {
                 "O CipherList=HIGH:!aNULL:!MD5:!3DES:!CAMELLIA:!PSK:!SRP\n"
                 "O ServerSSLOptions=+SSL_OP_NO_SSLv2 +SSL_OP_NO_SSLv3 +SSL_OP_NO_TLSv1 +SSL_OP_NO_TLSv1_1\n"
                 "O ClientSSLOptions=+SSL_OP_NO_SSLv2 +SSL_OP_NO_SSLv3 +SSL_OP_NO_TLSv1 +SSL_OP_NO_TLSv1_1\n"
-                "# Execute: make -C /etc/mail && systemctl restart sendmail"
+                "# Manual action after human review (NOT executed by SecureMailScope X): make -C /etc/mail && systemctl restart sendmail"
             ),
             RemediationPlatform.GENERIC: (
                 "# Generic MTA / Mail Proxy Guidance (RFC 8996 / NIST SP 800-52r2)\n"
@@ -114,24 +114,24 @@ PLAYBOOK_TEMPLATES: Dict[str, Dict[str, Any]] = {
                 "smtpd_tls_ciphers = high\n"
                 "smtpd_tls_exclude_ciphers = aNULL, eNULL, EXPORT, DES, RC4, MD5, PSK, aECDH, EDH-DSS-DES-CBC3-SHA, EDH-RSA-DES-CBC3-SHA, KRB5-DES, CBC3\n"
                 "tls_high_cipherlist = ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305\n"
-                "# Execute: postfix reload"
+                "# Manual action after human review (NOT executed by SecureMailScope X): postfix reload"
             ),
             RemediationPlatform.EXIM: (
                 "# /etc/exim4/exim4.conf.template\n"
                 "tls_require_ciphers = ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305\n"
-                "# Execute: update-exim4.conf && systemctl restart exim4"
+                "# Manual action after human review (NOT executed by SecureMailScope X): update-exim4.conf && systemctl restart exim4"
             ),
             RemediationPlatform.DOVECOT: (
                 "# /etc/dovecot/conf.d/10-ssl.conf\n"
                 "ssl_cipher_list = ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305\n"
                 "ssl_prefer_server_ciphers = yes\n"
-                "# Execute: systemctl reload dovecot"
+                "# Manual action after human review (NOT executed by SecureMailScope X): systemctl reload dovecot"
             ),
             RemediationPlatform.SENDMAIL: (
                 "# /etc/mail/sendmail.mc\n"
                 "LOCAL_CONFIG\n"
                 "O CipherList=HIGH:!aNULL:!MD5:!3DES:!CAMELLIA:!PSK:!SRP:!DES:!RC4\n"
-                "# Execute: make -C /etc/mail && systemctl restart sendmail"
+                "# Manual action after human review (NOT executed by SecureMailScope X): make -C /etc/mail && systemctl restart sendmail"
             ),
             RemediationPlatform.GENERIC: (
                 "# Generic Cipher Hardening (Mozilla Modern / Intermediate)\n"
@@ -162,7 +162,7 @@ PLAYBOOK_TEMPLATES: Dict[str, Dict[str, Any]] = {
                 "smtpd_tls_cert_file = /etc/ssl/certs/mailserver.crt\n"
                 "smtpd_tls_key_file = /etc/ssl/private/mailserver.key\n"
                 "smtpd_tls_loglevel = 1\n"
-                "# Execute: postfix reload"
+                "# Manual action after human review (NOT executed by SecureMailScope X): postfix reload"
             ),
             RemediationPlatform.EXIM: (
                 "# /etc/exim4/exim4.conf.template\n"
@@ -170,7 +170,7 @@ PLAYBOOK_TEMPLATES: Dict[str, Dict[str, Any]] = {
                 "tls_certificate = /etc/ssl/certs/mailserver.crt\n"
                 "tls_privatekey = /etc/ssl/private/mailserver.key\n"
                 "auth_advertise_hosts = ${if eq{$tls_cipher}{}{}{*}}\n"
-                "# Execute: update-exim4.conf && systemctl restart exim4"
+                "# Manual action after human review (NOT executed by SecureMailScope X): update-exim4.conf && systemctl restart exim4"
             ),
             RemediationPlatform.DOVECOT: (
                 "# /etc/dovecot/conf.d/10-ssl.conf\n"
@@ -178,7 +178,7 @@ PLAYBOOK_TEMPLATES: Dict[str, Dict[str, Any]] = {
                 "disable_plaintext_auth = yes\n"
                 "ssl_cert = </etc/ssl/certs/mailserver.crt\n"
                 "ssl_key = </etc/ssl/private/mailserver.key\n"
-                "# Execute: systemctl reload dovecot"
+                "# Manual action after human review (NOT executed by SecureMailScope X): systemctl reload dovecot"
             ),
             RemediationPlatform.SENDMAIL: (
                 "# /etc/mail/sendmail.mc\n"
@@ -187,7 +187,7 @@ PLAYBOOK_TEMPLATES: Dict[str, Dict[str, Any]] = {
                 "define(`confSERVER_CERT', `/etc/ssl/certs/mailserver.crt')dnl\n"
                 "define(`confSERVER_KEY', `/etc/ssl/private/mailserver.key')dnl\n"
                 "define(`confTLS_OPTIONS', `+SSL_OP_NO_SSLv2 +SSL_OP_NO_SSLv3')dnl\n"
-                "# Execute: make -C /etc/mail && systemctl restart sendmail"
+                "# Manual action after human review (NOT executed by SecureMailScope X): make -C /etc/mail && systemctl restart sendmail"
             ),
             RemediationPlatform.GENERIC: (
                 "# Generic STARTTLS Hardening (RFC 3207 / RFC 8314)\n"
@@ -218,26 +218,26 @@ PLAYBOOK_TEMPLATES: Dict[str, Dict[str, Any]] = {
                 "# /etc/postfix/main.cf\n"
                 "smtpd_tls_cert_file = /etc/letsencrypt/live/mail.example.com/fullchain.pem\n"
                 "smtpd_tls_key_file = /etc/letsencrypt/live/mail.example.com/privkey.pem\n"
-                "# Execute: postfix reload"
+                "# Manual action after human review (NOT executed by SecureMailScope X): postfix reload"
             ),
             RemediationPlatform.EXIM: (
                 "# /etc/exim4/exim4.conf.template\n"
                 "tls_certificate = /etc/letsencrypt/live/mail.example.com/fullchain.pem\n"
                 "tls_privatekey = /etc/letsencrypt/live/mail.example.com/privkey.pem\n"
-                "# Execute: update-exim4.conf && systemctl restart exim4"
+                "# Manual action after human review (NOT executed by SecureMailScope X): update-exim4.conf && systemctl restart exim4"
             ),
             RemediationPlatform.DOVECOT: (
                 "# /etc/dovecot/conf.d/10-ssl.conf\n"
                 "ssl_cert = </etc/letsencrypt/live/mail.example.com/fullchain.pem\n"
                 "ssl_key = </etc/letsencrypt/live/mail.example.com/privkey.pem\n"
-                "# Execute: systemctl reload dovecot"
+                "# Manual action after human review (NOT executed by SecureMailScope X): systemctl reload dovecot"
             ),
             RemediationPlatform.SENDMAIL: (
                 "# /etc/mail/sendmail.mc\n"
                 "define(`confSERVER_CERT', `/etc/letsencrypt/live/mail.example.com/cert.pem')dnl\n"
                 "define(`confSERVER_KEY', `/etc/letsencrypt/live/mail.example.com/privkey.pem')dnl\n"
                 "define(`confCACERT', `/etc/letsencrypt/live/mail.example.com/chain.pem')dnl\n"
-                "# Execute: make -C /etc/mail && systemctl restart sendmail"
+                "# Manual action after human review (NOT executed by SecureMailScope X): make -C /etc/mail && systemctl restart sendmail"
             ),
             RemediationPlatform.GENERIC: (
                 "# Generic Certificate Renewal Steps\n"
@@ -267,26 +267,26 @@ PLAYBOOK_TEMPLATES: Dict[str, Dict[str, Any]] = {
                 "# /etc/postfix/main.cf\n"
                 "smtpd_tls_eecdh_grade = strong\n"
                 "smtpd_tls_dh1024_param_file = /etc/postfix/dh2048.pem\n"
-                "# Generate DH params: openssl dhparam -out /etc/postfix/dh2048.pem 2048\n"
-                "# Execute: postfix reload"
+                "# Generate DH params (manual): openssl dhparam -out /etc/postfix/dh2048.pem 2048\n"
+                "# Manual action after human review (NOT executed by SecureMailScope X): postfix reload"
             ),
             RemediationPlatform.EXIM: (
                 "# /etc/exim4/exim4.conf.template\n"
                 "tls_dhparam = /etc/exim4/dh2048.pem\n"
                 "tls_require_ciphers = ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384\n"
-                "# Execute: update-exim4.conf && systemctl restart exim4"
+                "# Manual action after human review (NOT executed by SecureMailScope X): update-exim4.conf && systemctl restart exim4"
             ),
             RemediationPlatform.DOVECOT: (
                 "# /etc/dovecot/conf.d/10-ssl.conf\n"
                 "ssl_dh = </etc/dovecot/dh.pem\n"
                 "ssl_prefer_server_ciphers = yes\n"
-                "# Generate: openssl dhparam -out /etc/dovecot/dh.pem 2048\n"
-                "# Execute: systemctl reload dovecot"
+                "# Generate DH params (manual): openssl dhparam -out /etc/dovecot/dh.pem 2048\n"
+                "# Manual action after human review (NOT executed by SecureMailScope X): systemctl reload dovecot"
             ),
             RemediationPlatform.SENDMAIL: (
                 "# /etc/mail/sendmail.mc\n"
                 "define(`confDH_PARAMETERS', `/etc/mail/certs/dh2048.pem')dnl\n"
-                "# Execute: make -C /etc/mail && systemctl restart sendmail"
+                "# Manual action after human review (NOT executed by SecureMailScope X): make -C /etc/mail && systemctl restart sendmail"
             ),
             RemediationPlatform.GENERIC: (
                 "# Generic Forward Secrecy Guidance\n"
@@ -354,43 +354,46 @@ PLAYBOOK_TEMPLATES: Dict[str, Dict[str, Any]] = {
             "STATE-OF-THE-ART TLS 1.3 NEGOTIATED",
         ],
         "remediation_id": "MAINTAIN_MODERN_TLS",
-        "action_title": "Maintain Modern TLS 1.3 Transport Configuration",
+        "action_title": "Maintain Modern TLS Transport (TLS 1.3 Preferred, TLS 1.2 Compatibility Floor)",
         "category": RemediationCategory.TLS_CONFIGURATION,
         "priority": RemediationPriority.INFORMATIONAL,
-        "expected_security_effect": "Preserves state-of-the-art TLS 1.3 transport encryption, AEAD cipher integrity, and forward secrecy.",
+        "expected_security_effect": "Maintains modern TLS transport configuration and AEAD cipher integrity. Forward secrecy cannot be verified from the available passive evidence.",
         "validation_steps": [
-            "Verify MTA actively offers TLS 1.3 cipher suites (TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256, TLS_AES_128_GCM_SHA256).",
-            "Ensure forward secrecy and 0-RTT anti-replay controls remain active."
+            "Verify MTA actively offers TLS 1.3 and AEAD cipher suites (TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256, TLS_AES_128_GCM_SHA256).",
+            "Assess key exchange parameters and protocol negotiation where active testing is permitted."
         ],
-        "rollback_guidance": "No rollback needed; maintain TLS 1.3 as prioritized protocol.",
-        "assumptions": ["MTA and client crypto libraries support TLS 1.3 (RFC 8446)."],
-        "limitations": ["Legacy clients without TLS 1.3 negotiate TLS 1.2 if permitted."],
+        "rollback_guidance": "No rollback needed; maintain TLS 1.3 as preferred protocol.",
+        "assumptions": ["MTA and client crypto libraries support TLS 1.2+ with TLS 1.3 preferred (RFC 8446)."],
+        "limitations": ["Clients negotiate TLS 1.3 when supported, with TLS 1.2 retained as an allowed compatibility floor."],
         "snippets": {
             RemediationPlatform.POSTFIX: (
                 "# /etc/postfix/main.cf\n"
+                "# Modern TLS: TLS 1.3 preferred, TLS 1.2 retained as minimum compatibility floor\n"
                 "smtpd_tls_mandatory_protocols = >=TLSv1.2\n"
                 "smtpd_tls_protocols = >=TLSv1.2\n"
                 "tls_high_cipherlist = TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256\n"
-                "# Execute: postfix reload"
+                "# Manual action after human review (NOT executed by SecureMailScope X): postfix reload"
             ),
             RemediationPlatform.EXIM: (
                 "# /etc/exim4/exim4.conf.template\n"
+                "# Modern TLS: Disallow legacy SSLv2/SSLv3/TLSv1.0/TLSv1.1, allow TLS 1.2 and TLS 1.3\n"
                 "openssl_options = +no_sslv2 +no_sslv3 +no_tlsv1 +no_tlsv1_1\n"
-                "# Execute: update-exim4.conf && systemctl restart exim4"
+                "# Manual action after human review (NOT executed by SecureMailScope X): update-exim4.conf && systemctl restart exim4"
             ),
             RemediationPlatform.DOVECOT: (
                 "# /etc/dovecot/conf.d/10-ssl.conf\n"
                 "ssl_min_protocol = TLSv1.2\n"
-                "# Execute: systemctl reload dovecot"
+                "# Manual action after human review (NOT executed by SecureMailScope X): systemctl reload dovecot"
             ),
             RemediationPlatform.SENDMAIL: (
                 "# /etc/mail/sendmail.mc\n"
-                "O ServerSSLOptions=+SSL_OP_NO_SSLv2 +SSL_OP_NO_SSLv3 +SSL_OP_NO_TLSv1 +SSL_OP_NO_TLSv1_1"
+                "O ServerSSLOptions=+SSL_OP_NO_SSLv2 +SSL_OP_NO_SSLv3 +SSL_OP_NO_TLSv1 +SSL_OP_NO_TLSv1_1\n"
+                "# Manual action after human review (NOT executed by SecureMailScope X): make -C /etc/mail && systemctl restart sendmail"
             ),
             RemediationPlatform.GENERIC: (
-                "# Generic TLS 1.3 Guidance (RFC 8446)\n"
-                "1. Enforce TLS 1.3 support across all MTA endpoints.\n"
-                "2. Maintain TLS 1.2 compatibility with AEAD ciphers for transitional clients."
+                "# Generic Modern TLS Guidance (RFC 8446 / RFC 8996)\n"
+                "1. Enforce TLS 1.3 support across all MTA endpoints with TLS 1.2 as minimum compatibility floor.\n"
+                "2. Maintain AEAD ciphers (AES-GCM, CHACHA20-POLY1305) and disallow deprecated TLS 1.0/1.1."
             ),
         },
     },
@@ -425,22 +428,25 @@ PLAYBOOK_TEMPLATES: Dict[str, Dict[str, Any]] = {
                 "# /etc/postfix/main.cf\n"
                 "tls_high_cipherlist = ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256\n"
                 "# Ensure OpenSSL config (/etc/ssl/openssl.cnf) includes Groups = X25519MLKEM768:x25519_kyber768:X25519:P-256\n"
-                "# Execute: postfix reload"
+                "# Manual action after human review (NOT executed by SecureMailScope X): postfix reload"
             ),
             RemediationPlatform.EXIM: (
                 "# /etc/exim4/exim4.conf.template\n"
                 "# Configure OpenSSL 3.2 groups via system crypto policy or openssl.cnf\n"
-                "# Groups = X25519MLKEM768:x25519_kyber768:X25519:P-256"
+                "# Groups = X25519MLKEM768:x25519_kyber768:X25519:P-256\n"
+                "# Manual action after human review (NOT executed by SecureMailScope X): update-exim4.conf && systemctl restart exim4"
             ),
             RemediationPlatform.DOVECOT: (
                 "# Dovecot (OpenSSL 3.2+ SSL Groups)\n"
                 "# /etc/dovecot/conf.d/10-ssl.conf\n"
                 "ssl_min_protocol = TLSv1.3\n"
-                "# Handled by system OpenSSL 3.2 provider"
+                "# Handled by system OpenSSL 3.2 provider\n"
+                "# Manual action after human review (NOT executed by SecureMailScope X): systemctl reload dovecot"
             ),
             RemediationPlatform.SENDMAIL: (
                 "# Sendmail (OpenSSL 3.2+ Integration)\n"
-                "O ServerSSLOptions=+SSL_OP_NO_SSLv2 +SSL_OP_NO_SSLv3 +SSL_OP_NO_TLSv1 +SSL_OP_NO_TLSv1_1"
+                "O ServerSSLOptions=+SSL_OP_NO_SSLv2 +SSL_OP_NO_SSLv3 +SSL_OP_NO_TLSv1 +SSL_OP_NO_TLSv1_1\n"
+                "# Manual action after human review (NOT executed by SecureMailScope X): make -C /etc/mail && systemctl restart sendmail"
             ),
             RemediationPlatform.GENERIC: (
                 "# Generic Post-Quantum Hybrid Migration (NIST FIPS 203 / RFC 9180)\n"
