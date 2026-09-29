@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getApiUrl } from '../api/client';
+import { useAnalysisStore } from '../store/useAnalysisStore';
+import { useAuthStore } from '../store/useAuthStore';
 import {
   ShieldAlert,
   Terminal,
@@ -24,6 +26,7 @@ import {
 
 interface RemediationGuidanceItem {
   item_id: string;
+  remediation_id: string;
   finding_code: string;
   platform: string;
   category: string;
@@ -103,26 +106,80 @@ export const RemediationPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<string | null>(null);
 
-  // Playbook generator state
+  const { currentAnalysis } = useAnalysisStore();
+  const { user } = useAuthStore();
+
+  // Dynamically extract authoritative observed findings from active analysis
+  const observedFindings = React.useMemo(() => {
+    if (!currentAnalysis) return [];
+    let list: any[] = [];
+    if (Array.isArray(currentAnalysis.findings) && currentAnalysis.findings.length > 0) {
+      list = currentAnalysis.findings;
+    } else {
+      const sessionFindings: any[] = [];
+      const streams = currentAnalysis.streams || [];
+      streams.forEach((s: any) => {
+        if (s.security_assessment?.findings) {
+          sessionFindings.push(...s.security_assessment.findings);
+        }
+      });
+      list = sessionFindings;
+    }
+
+    const hasObservableKeyExchange = currentAnalysis.streams?.some(
+      (s: any) => s.forward_secrecy_pfs === true || (s.pfs_status && s.pfs_status.startsWith('Yes')) || (s.tls?.pfs_status && s.tls.pfs_status.startsWith('Yes'))
+    );
+
+    // Filter out unverified PFS findings if key exchange evidence is unavailable
+    return list.filter((f: any) => {
+      if (f.id === 'FINDING-FORWARD-SECRECY-VERIFIED' || f.title?.includes('Forward Secrecy (PFS) Verified')) {
+        return Boolean(hasObservableKeyExchange);
+      }
+      return true;
+    }).map((f: any) => {
+      let rem = f.recommendation || f.remediation;
+      if (f.id === 'FINDING-PQC-CLASSICAL-KEX-EXPOSURE' && rem && (rem.includes('Kyber') || rem.includes('as standardized in NIST FIPS 203') || rem.includes('Deploy hybrid key encapsulation mechanisms'))) {
+        rem = 'Consider hybrid key establishment combining classical key exchange with ML-KEM, where appropriate. ML-KEM is standardized in NIST FIPS 203.';
+      }
+      const rawCode = f.id || f.finding_id || `FINDING_${(f.title || 'SECURITY').replace(/[^a-zA-Z0-9]/g, '_').toUpperCase()}`;
+      return {
+        id: rawCode,
+        finding_id: f.finding_id || f.id || rawCode,
+        code: rawCode,
+        title: f.title || 'Observed Security Finding',
+        severity: (f.severity || 'INFO').toUpperCase(),
+        category: f.category || 'SECURITY',
+        description: f.description || '',
+        recommendation: rem,
+        remediation: rem,
+        evidence_frames: f.evidence_frames || f.frame_anchors || [],
+        rule_id: f.rule_id,
+      };
+    });
+  }, [currentAnalysis]);
+
+  // Playbook generator state — unchecked by default
   const [selectedPlatform, setSelectedPlatform] = useState('POSTFIX');
   const [targetHostname, setTargetHostname] = useState('');
-  const [selectedFindingCodes, setSelectedFindingCodes] = useState<string[]>([
-    'FINDING_CLEAR_TEXT_AUTH',
-    'FINDING_LEGACY_TLS_10',
-  ]);
+  const [selectedFindingCodes, setSelectedFindingCodes] = useState<string[]>([]);
   const [playbooks, setPlaybooks] = useState<RemediationGuidanceItem[]>([]);
 
-  // Simulation state
-  const [simBaselineFindings, setSimBaselineFindings] = useState<string[]>([
-    'FINDING_CLEAR_TEXT_AUTH',
-    'FINDING_LEGACY_TLS_10',
-    'FINDING_NULL_CIPHER',
-  ]);
-  const [simFixCodes, setSimFixCodes] = useState<string[]>([
-    'FINDING_CLEAR_TEXT_AUTH',
-    'FINDING_LEGACY_TLS_10',
-  ]);
+  // Simulation state — dynamic from active analysis
+  const [simBaselineFindings, setSimBaselineFindings] = useState<string[]>([]);
+  const [simFixCodes, setSimFixCodes] = useState<string[]>([]);
   const [simResult, setSimResult] = useState<SimulateFixResponse | null>(null);
+
+  // Synchronize baseline findings for simulation when active analysis changes
+  useEffect(() => {
+    if (observedFindings.length > 0) {
+      setSimBaselineFindings(observedFindings.map((f) => f.id));
+      setSimFixCodes([]);
+    } else {
+      setSimBaselineFindings([]);
+      setSimFixCodes([]);
+      setSimResult(null);
+    }
+  }, [observedFindings]);
 
   // Plans state
   const [plans, setPlans] = useState<RemediationPlan[]>([]);
@@ -140,15 +197,18 @@ export const RemediationPage: React.FC = () => {
   const [verifyMethod, setVerifyMethod] = useState('ACTIVE_SCAN');
   const [planVerifications, setPlanVerifications] = useState<VerificationRecord[]>([]);
 
-  const availableFindings = [
-    { code: 'FINDING_CLEAR_TEXT_AUTH', name: 'Cleartext Authentication Detected (High)' },
-    { code: 'FINDING_LEGACY_TLS_10', name: 'Obsolete TLS 1.0 / 1.1 In Use (High)' },
-    { code: 'FINDING_NULL_CIPHER', name: 'Insecure Null / Anonymous Cipher (Critical)' },
-    { code: 'FINDING_WEAK_DH_PARAMS', name: 'Weak Diffie-Hellman Parameter (<2048-bit) (Medium)' },
-    { code: 'FINDING_EXPIRED_CERT', name: 'Expired X.509 Certificate (High)' },
-    { code: 'FINDING_SELF_SIGNED_CERT', name: 'Untrusted Self-Signed Certificate (Medium)' },
-    { code: 'FINDING_NO_STARTTLS', name: 'STARTTLS Negotiation Missing / Disabled (High)' },
-  ];
+  const { token } = useAuthStore();
+
+  const getAuthHeaders = () => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    const activeToken = token || localStorage.getItem('sms_auth_token');
+    if (activeToken) {
+      headers['Authorization'] = `Bearer ${activeToken}`;
+    }
+    return headers;
+  };
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -157,20 +217,39 @@ export const RemediationPage: React.FC = () => {
   };
 
   const handleGeneratePlaybooks = async () => {
+    if (selectedFindingCodes.length === 0) return;
     setLoading(true);
     try {
       const res = await fetch(getApiUrl('/api/v1/remediation/playbooks/generate'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           platform: selectedPlatform,
           target_hostname: targetHostname || undefined,
           finding_codes: selectedFindingCodes,
+          analysis_id: currentAnalysis?.analysis_id,
         }),
       });
       if (res.ok) {
         const data = await res.json();
-        setPlaybooks(data.guidance_items || []);
+        const rawItems = data.items || data.guidance_items || [];
+        const mappedItems: RemediationGuidanceItem[] = rawItems.map((item: any) => ({
+          item_id: item.remediation_id || item.item_id || String(Math.random()),
+          remediation_id: item.remediation_id || item.item_id || 'REMEDIATION_ACTION',
+          finding_code: item.finding_code || 'OBSERVED_FINDING',
+          platform: item.platform || selectedPlatform,
+          category: item.category || 'MAIL_SERVER_HARDENING',
+          priority: item.priority || 'MEDIUM',
+          title: item.action_title || item.title || 'Hardening Guidance',
+          description: item.guidance_text || item.description || item.expected_security_effect || '',
+          configuration_snippet: item.config_snippet || item.configuration_snippet || '# Advisory configuration snippet',
+          assumptions: item.assumptions || [],
+          security_effect: item.expected_security_effect || item.security_effect || 'Improves cryptographic posture.',
+          validation_steps: item.validation_steps || [],
+          rollback_snippet: item.rollback_guidance || item.rollback_snippet || '',
+          limitations: item.limitations || [],
+        }));
+        setPlaybooks(mappedItems);
       }
     } catch (e) {
       console.error('Failed to generate playbooks', e);
@@ -180,21 +259,23 @@ export const RemediationPage: React.FC = () => {
   };
 
   const handleRunSimulation = async () => {
+    if (simBaselineFindings.length === 0) return;
     setLoading(true);
     try {
+      const activeStream = currentAnalysis?.streams?.[0];
       const res = await fetch(getApiUrl('/api/v1/remediation/simulate'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           platform: selectedPlatform,
           baseline_findings: simBaselineFindings,
           applied_remediation_codes: simFixCodes,
           baseline_posture: {
-            tls_version: 'TLS 1.0',
-            cipher_suite: 'RC4-MD5',
-            pfs_status: 'DISABLED',
-            pqc_status: 'CLASSICAL',
-            security_mode: 'STARTTLS',
+            tls_version: activeStream?.tls?.version || activeStream?.tls_version || 'TLS 1.3',
+            cipher_suite: activeStream?.tls?.cipher_suite || activeStream?.cipher_suite || 'TLS_AES_256_GCM_SHA384',
+            pfs_status: activeStream?.forward_secrecy_pfs ? 'ENABLED' : 'DISABLED',
+            pqc_status: (activeStream as any)?.pqc_ready ? 'QUANTUM_SAFE' : 'CLASSICAL',
+            security_mode: activeStream?.security_mode || 'STARTTLS',
             reachable: true,
           },
         }),
@@ -213,7 +294,9 @@ export const RemediationPage: React.FC = () => {
   const fetchPlans = async () => {
     setLoading(true);
     try {
-      const res = await fetch(getApiUrl('/api/v1/remediation/plans'));
+      const res = await fetch(getApiUrl('/api/v1/remediation/plans'), {
+        headers: getAuthHeaders(),
+      });
       if (res.ok) {
         const data = await res.json();
         setPlans(data || []);
@@ -244,10 +327,10 @@ export const RemediationPage: React.FC = () => {
 
       const res = await fetch(getApiUrl('/api/v1/remediation/plans'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           title: newPlanTitle || `${selectedPlatform} Security Hardening Plan`,
-          case_id: newPlanCaseId || undefined,
+          case_id: newPlanCaseId || currentAnalysis?.analysis_id || undefined,
           platform: selectedPlatform,
           items,
         }),
@@ -272,7 +355,7 @@ export const RemediationPage: React.FC = () => {
     try {
       const res = await fetch(getApiUrl(`/api/v1/remediation/plans/${selectedPlan.plan_id}/apply`), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           deployment_notes: applyNotes || 'Applied configuration snippet per change request.',
         }),
@@ -297,20 +380,20 @@ export const RemediationPage: React.FC = () => {
     try {
       const res = await fetch(getApiUrl(`/api/v1/remediation/plans/${selectedPlan.plan_id}/verify`), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           verification_method: verifyMethod,
           evidence_reference: verifyEvidenceRef || 'scan-rec-001',
           new_finding_codes: verifyNewFindings,
-          details: 'Forensic verification scan completed.',
+          details: 'Forensic verification scan completed against newly observed evidence.',
         }),
       });
       if (res.ok) {
-        const record = await res.json();
         setShowVerifyModal(false);
         fetchPlans();
-        // Refresh selected plan
-        const planRes = await fetch(getApiUrl(`/api/v1/remediation/plans/${selectedPlan.plan_id}`));
+        const planRes = await fetch(getApiUrl(`/api/v1/remediation/plans/${selectedPlan.plan_id}`), {
+          headers: getAuthHeaders(),
+        });
         if (planRes.ok) {
           setSelectedPlan(await planRes.json());
         }
@@ -325,7 +408,9 @@ export const RemediationPage: React.FC = () => {
 
   const fetchVerifications = async (planId: string) => {
     try {
-      const res = await fetch(getApiUrl(`/api/v1/remediation/plans/${planId}/verifications`));
+      const res = await fetch(getApiUrl(`/api/v1/remediation/plans/${planId}/verifications`), {
+        headers: getAuthHeaders(),
+      });
       if (res.ok) {
         const data = await res.json();
         setPlanVerifications(data || []);
@@ -348,7 +433,7 @@ export const RemediationPage: React.FC = () => {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
             <ShieldAlert size={20} color="var(--text-cyan)" />
-            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 600 }}>Evidence-Based Remediation & Simulate-Fix</h1>
+            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 600 }}>Evidence-Based Remediation &amp; Simulate-Fix</h1>
             <span
               style={{
                 fontSize: '10px',
@@ -423,7 +508,7 @@ export const RemediationPage: React.FC = () => {
       {/* TAB 1: Playbook Generator */}
       {activeTab === 'playbooks' && (
         <div>
-          <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '20px' }}>
             {/* Left controls */}
             <div
               style={{
@@ -485,38 +570,119 @@ export const RemediationPage: React.FC = () => {
                 <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>
                   Select Observed Findings
                 </label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {availableFindings.map((f) => (
-                    <label
-                      key={f.code}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        fontSize: '11px',
-                        cursor: 'pointer',
-                        padding: '4px 6px',
-                        borderRadius: '4px',
-                        background: selectedFindingCodes.includes(f.code)
-                          ? 'rgba(56, 189, 248, 0.08)'
-                          : 'transparent',
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedFindingCodes.includes(f.code)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedFindingCodes([...selectedFindingCodes, f.code]);
-                          } else {
-                            setSelectedFindingCodes(selectedFindingCodes.filter((c) => c !== f.code));
-                          }
-                        }}
-                      />
-                      <span>{f.name}</span>
-                    </label>
-                  ))}
-                </div>
+                {observedFindings.length === 0 ? (
+                  <div
+                    style={{
+                      padding: '16px',
+                      borderRadius: '4px',
+                      background: 'var(--bg-surface)',
+                      border: '1px dashed var(--border-subtle)',
+                      fontSize: '11px',
+                      color: 'var(--text-muted)',
+                      textAlign: 'center',
+                    }}
+                  >
+                    No remediation-relevant findings for this analysis.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {observedFindings.map((f) => {
+                      const isChecked = selectedFindingCodes.includes(f.id);
+                      return (
+                        <label
+                          key={f.id}
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '4px',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            padding: '8px 10px',
+                            borderRadius: '6px',
+                            background: isChecked
+                              ? 'rgba(6, 182, 212, 0.08)'
+                              : 'var(--bg-surface)',
+                            border: isChecked
+                              ? '1px solid var(--accent-cyan-border)'
+                              : '1px solid var(--border-subtle)',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedFindingCodes([...selectedFindingCodes, f.id]);
+                                } else {
+                                  setSelectedFindingCodes(selectedFindingCodes.filter((c) => c !== f.id));
+                                }
+                              }}
+                              style={{ marginTop: '2px' }}
+                            />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginBottom: '2px' }}>
+                                <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{f.title}</span>
+                                <span
+                                  style={{
+                                    fontSize: '9px',
+                                    fontFamily: 'JetBrains Mono, monospace',
+                                    padding: '1px 4px',
+                                    borderRadius: '2px',
+                                    fontWeight: 600,
+                                    background:
+                                      f.severity === 'CRITICAL'
+                                        ? 'rgba(239, 68, 68, 0.15)'
+                                        : f.severity === 'HIGH'
+                                        ? 'rgba(249, 115, 22, 0.15)'
+                                        : f.severity === 'MEDIUM'
+                                        ? 'rgba(234, 179, 8, 0.15)'
+                                        : f.severity === 'LOW'
+                                        ? 'rgba(56, 189, 248, 0.15)'
+                                        : 'rgba(148, 163, 184, 0.15)',
+                                    color:
+                                      f.severity === 'CRITICAL'
+                                        ? 'var(--text-red, #ef4444)'
+                                        : f.severity === 'HIGH'
+                                        ? 'var(--text-orange, #f97316)'
+                                        : f.severity === 'MEDIUM'
+                                        ? 'var(--text-yellow, #eab308)'
+                                        : f.severity === 'LOW'
+                                        ? 'var(--text-cyan, #06b6d4)'
+                                        : 'var(--text-muted, #94a3b8)',
+                                    border: '1px solid var(--border-subtle)',
+                                  }}
+                                >
+                                  {f.severity}
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: '9px',
+                                    fontFamily: 'JetBrains Mono, monospace',
+                                    color: 'var(--text-muted)',
+                                  }}
+                                >
+                                  [{f.category}]
+                                </span>
+                              </div>
+                              {f.remediation && (
+                                <div style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '2px', lineHeight: 1.4 }}>
+                                  {f.remediation}
+                                </div>
+                              )}
+                              {Array.isArray(f.evidence_frames) && f.evidence_frames.length > 0 && (
+                                <div style={{ fontSize: '9.5px', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-cyan)', marginTop: '3px' }}>
+                                  Frame Anchors: {f.evidence_frames.map((fn: number) => `#${fn}`).join(', ')}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <button
@@ -535,7 +701,8 @@ export const RemediationPage: React.FC = () => {
                   color: 'var(--text-cyan)',
                   fontSize: '12px',
                   fontWeight: 600,
-                  cursor: loading ? 'not-allowed' : 'pointer',
+                  cursor: loading || selectedFindingCodes.length === 0 ? 'not-allowed' : 'pointer',
+                  opacity: loading || selectedFindingCodes.length === 0 ? 0.6 : 1,
                 }}
               >
                 <Sparkles size={14} />
@@ -583,7 +750,9 @@ export const RemediationPage: React.FC = () => {
                 >
                   <FileCode size={32} style={{ marginBottom: '10px', opacity: 0.5 }} />
                   <p style={{ margin: 0, fontSize: '13px' }}>
-                    Select findings and click "Generate Playbooks" to view deterministic hardening guidance.
+                    {observedFindings.length === 0
+                      ? 'No remediation-relevant findings for this analysis.'
+                      : 'Select findings and click "Generate Playbooks" to view deterministic hardening guidance.'}
                   </p>
                 </div>
               ) : (
@@ -736,7 +905,7 @@ export const RemediationPage: React.FC = () => {
 
       {/* TAB 2: Simulate-Fix Engine */}
       {activeTab === 'simulate' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: '20px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '20px' }}>
           {/* Left: Input controls */}
           <div
             style={{
@@ -752,47 +921,72 @@ export const RemediationPage: React.FC = () => {
               <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
                 Baseline Finding Codes
               </label>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {availableFindings.map((f) => (
-                  <label key={f.code} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px' }}>
-                    <input
-                      type="checkbox"
-                      checked={simBaselineFindings.includes(f.code)}
-                      onChange={(e) => {
-                        if (e.target.checked) setSimBaselineFindings([...simBaselineFindings, f.code]);
-                        else setSimBaselineFindings(simBaselineFindings.filter((c) => c !== f.code));
-                      }}
-                    />
-                    <span>{f.name}</span>
-                  </label>
-                ))}
-              </div>
+              {observedFindings.length === 0 ? (
+                <div
+                  style={{
+                    padding: '12px',
+                    borderRadius: '4px',
+                    background: 'var(--bg-surface)',
+                    border: '1px dashed var(--border-subtle)',
+                    fontSize: '11px',
+                    color: 'var(--text-muted)',
+                    textAlign: 'center',
+                  }}
+                >
+                  No active findings available for simulation.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {observedFindings.map((f) => (
+                    <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={simBaselineFindings.includes(f.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setSimBaselineFindings([...simBaselineFindings, f.id]);
+                          else setSimBaselineFindings(simBaselineFindings.filter((c) => c !== f.id));
+                        }}
+                      />
+                      <span>{f.title} ({f.severity})</span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
                 Applied Remediation Fixes
               </label>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {simBaselineFindings.map((code) => (
-                  <label key={code} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px' }}>
-                    <input
-                      type="checkbox"
-                      checked={simFixCodes.includes(code)}
-                      onChange={(e) => {
-                        if (e.target.checked) setSimFixCodes([...simFixCodes, code]);
-                        else setSimFixCodes(simFixCodes.filter((c) => c !== code));
-                      }}
-                    />
-                    <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>{code}</span>
-                  </label>
-                ))}
-              </div>
+              {simBaselineFindings.length === 0 ? (
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Select at least one baseline finding above.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {simBaselineFindings.map((code) => {
+                    const matchedFinding = observedFindings.find((f) => f.id === code);
+                    return (
+                      <label key={code} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={simFixCodes.includes(code)}
+                          onChange={(e) => {
+                            if (e.target.checked) setSimFixCodes([...simFixCodes, code]);
+                            else setSimFixCodes(simFixCodes.filter((c) => c !== code));
+                          }}
+                        />
+                        <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>
+                          {matchedFinding ? `${matchedFinding.title}` : code}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <button
               onClick={handleRunSimulation}
-              disabled={loading}
+              disabled={loading || simBaselineFindings.length === 0}
               style={{
                 width: '100%',
                 display: 'flex',
@@ -806,7 +1000,8 @@ export const RemediationPage: React.FC = () => {
                 color: 'var(--text-cyan)',
                 fontSize: '12px',
                 fontWeight: 600,
-                cursor: loading ? 'not-allowed' : 'pointer',
+                cursor: loading || simBaselineFindings.length === 0 ? 'not-allowed' : 'pointer',
+                opacity: loading || simBaselineFindings.length === 0 ? 0.6 : 1,
               }}
             >
               <Play size={14} />
@@ -1438,21 +1633,25 @@ export const RemediationPage: React.FC = () => {
               <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
                 Newly Observed Findings in Verification Scan (leave empty if all resolved)
               </label>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {availableFindings.map((f) => (
-                  <label key={f.code} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px' }}>
-                    <input
-                      type="checkbox"
-                      checked={verifyNewFindings.includes(f.code)}
-                      onChange={(e) => {
-                        if (e.target.checked) setVerifyNewFindings([...verifyNewFindings, f.code]);
-                        else setVerifyNewFindings(verifyNewFindings.filter((c) => c !== f.code));
-                      }}
-                    />
-                    <span>{f.name}</span>
-                  </label>
-                ))}
-              </div>
+              {observedFindings.length === 0 ? (
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>No prior findings to re-evaluate.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {observedFindings.map((f) => (
+                    <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={verifyNewFindings.includes(f.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setVerifyNewFindings([...verifyNewFindings, f.id]);
+                          else setVerifyNewFindings(verifyNewFindings.filter((c) => c !== f.id));
+                        }}
+                      />
+                      <span>{f.title} ({f.severity})</span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
               <button

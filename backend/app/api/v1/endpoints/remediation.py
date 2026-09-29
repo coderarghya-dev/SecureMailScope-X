@@ -52,24 +52,35 @@ def _enforce_capability(actor_id: str, capability: Capability):
 
 
 # ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 # 1. Playbook Generation & Simulate-Fix
 # ------------------------------------------------------------------------------
+
+from app.api.v1.endpoints.auth import get_optional_current_user
+from fastapi import Depends
+
 
 @router.post("/playbooks/generate", response_model=PlaybookGenerationResponse)
 def generate_playbooks(
     req: PlaybookGenerationRequest,
+    current_user: Optional[dict] = Depends(get_optional_current_user),
     x_actor_id: Optional[str] = Header(None),
     x_actor_name: Optional[str] = Header(None),
 ):
     """Generate deterministic platform-specific remediation playbooks for finding codes."""
     actor = _get_actor_context(x_actor_id, x_actor_name)
     _enforce_capability(actor.actor_id, Capability.RUN_SIMULATION)
-    return RemediationService.generate_playbook(req)
+    user_id = current_user.get("id") if current_user else None
+    try:
+        return RemediationService.generate_playbook(req, user_id=user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.post("/simulate", response_model=SimulateFixResponse)
 def simulate_fix(
     req: SimulateFixRequest,
+    current_user: Optional[dict] = Depends(get_optional_current_user),
     x_actor_id: Optional[str] = Header(None),
     x_actor_name: Optional[str] = Header(None),
 ):

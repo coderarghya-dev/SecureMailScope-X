@@ -173,7 +173,7 @@ class TestRemediationPlaybooks(unittest.TestCase):
             finding_codes=[],
         )
         res = RemediationService.generate_playbook(req)
-        self.assertEqual(len(res.items), 7)
+        self.assertEqual(len(res.items), 8)
 
     def test_07_playbook_deterministic_output(self):
         """Test playbook generation produces deterministic, repeatable outputs."""

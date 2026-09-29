@@ -343,8 +343,70 @@ PLAYBOOK_TEMPLATES: Dict[str, Dict[str, Any]] = {
             ),
         },
     },
+    "MODERN_TLS": {
+        "finding_codes": [
+            "TLS_1_3_NEGOTIATED",
+            "FINDING-TLS-1.3-NEGOTIATED",
+            "TLS-1-3",
+            "TLS13",
+            "TLS_1_3",
+            "MODERN_TLS",
+            "STATE-OF-THE-ART TLS 1.3 NEGOTIATED",
+        ],
+        "remediation_id": "MAINTAIN_MODERN_TLS",
+        "action_title": "Maintain Modern TLS 1.3 Transport Configuration",
+        "category": RemediationCategory.TLS_CONFIGURATION,
+        "priority": RemediationPriority.INFORMATIONAL,
+        "expected_security_effect": "Preserves state-of-the-art TLS 1.3 transport encryption, AEAD cipher integrity, and forward secrecy.",
+        "validation_steps": [
+            "Verify MTA actively offers TLS 1.3 cipher suites (TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256, TLS_AES_128_GCM_SHA256).",
+            "Ensure forward secrecy and 0-RTT anti-replay controls remain active."
+        ],
+        "rollback_guidance": "No rollback needed; maintain TLS 1.3 as prioritized protocol.",
+        "assumptions": ["MTA and client crypto libraries support TLS 1.3 (RFC 8446)."],
+        "limitations": ["Legacy clients without TLS 1.3 negotiate TLS 1.2 if permitted."],
+        "snippets": {
+            RemediationPlatform.POSTFIX: (
+                "# /etc/postfix/main.cf\n"
+                "smtpd_tls_mandatory_protocols = >=TLSv1.2\n"
+                "smtpd_tls_protocols = >=TLSv1.2\n"
+                "tls_high_cipherlist = TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256\n"
+                "# Execute: postfix reload"
+            ),
+            RemediationPlatform.EXIM: (
+                "# /etc/exim4/exim4.conf.template\n"
+                "openssl_options = +no_sslv2 +no_sslv3 +no_tlsv1 +no_tlsv1_1\n"
+                "# Execute: update-exim4.conf && systemctl restart exim4"
+            ),
+            RemediationPlatform.DOVECOT: (
+                "# /etc/dovecot/conf.d/10-ssl.conf\n"
+                "ssl_min_protocol = TLSv1.2\n"
+                "# Execute: systemctl reload dovecot"
+            ),
+            RemediationPlatform.SENDMAIL: (
+                "# /etc/mail/sendmail.mc\n"
+                "O ServerSSLOptions=+SSL_OP_NO_SSLv2 +SSL_OP_NO_SSLv3 +SSL_OP_NO_TLSv1 +SSL_OP_NO_TLSv1_1"
+            ),
+            RemediationPlatform.GENERIC: (
+                "# Generic TLS 1.3 Guidance (RFC 8446)\n"
+                "1. Enforce TLS 1.3 support across all MTA endpoints.\n"
+                "2. Maintain TLS 1.2 compatibility with AEAD ciphers for transitional clients."
+            ),
+        },
+    },
     "PQC_MIGRATION": {
-        "finding_codes": ["PQC_NON_COMPLIANT", "PQC_VULNERABLE", "PQC-CLASSICAL-KEX", "HNDL-RISK", "PQC-READINESS"],
+        "finding_codes": [
+            "PQC_NON_COMPLIANT",
+            "PQC_VULNERABLE",
+            "PQC-CLASSICAL-KEX",
+            "HNDL-RISK",
+            "PQC-READINESS",
+            "FINDING-PQC-CLASSICAL-KEX-EXPOSURE",
+            "PQC_HARVEST_NOW_DECRYPT_LATER",
+            "HNDL_EXPOSURE",
+            "HNDL",
+            "VULNERABLE TO HARVEST NOW, DECRYPT LATER (HNDL)",
+        ],
         "remediation_id": "ENABLE_HYBRID_PQC",
         "action_title": "Deploy Post-Quantum Hybrid Key Exchange (ML-KEM / X25519Kyber768)",
         "category": RemediationCategory.PQC_MIGRATION,
@@ -398,6 +460,7 @@ class RemediationService:
     def generate_playbook(
         cls,
         request: PlaybookGenerationRequest,
+        user_id: Optional[str] = None,
         db_path: Optional[str] = None,
     ) -> PlaybookGenerationResponse:
         """
@@ -409,18 +472,24 @@ class RemediationService:
         if request.finding_codes:
             finding_codes.update(c.upper() for c in request.finding_codes)
 
-        # If analysis_id is provided, extract verified finding IDs
+        # If analysis_id is provided, extract verified finding IDs with user isolation check
         if request.analysis_id:
+            if user_id and not ForensicRepository.is_analysis_owned_by_user(user_id, request.analysis_id, db_path=db_path):
+                raise ValueError(f"Analysis '{request.analysis_id}' not found in user workspace.")
             conn = get_db_connection(db_path)
             cursor = conn.cursor()
-            cursor.execute("SELECT finding_id, rule_id FROM findings WHERE analysis_id = ?;", (request.analysis_id,))
+            cursor.execute("SELECT finding_id, rule_id, title FROM findings WHERE analysis_id = ?;", (request.analysis_id,))
             rows = cursor.fetchall()
             conn.close()
-            for r in rows:
-                if r["finding_id"]:
-                    finding_codes.add(r["finding_id"].upper())
-                if r["rule_id"]:
-                    finding_codes.add(r["rule_id"].upper())
+            # If finding_codes was not explicitly provided, populate from analysis findings
+            if not request.finding_codes:
+                for r in rows:
+                    if r["finding_id"]:
+                        finding_codes.add(r["finding_id"].upper())
+                    if r["rule_id"]:
+                        finding_codes.add(r["rule_id"].upper())
+                    if r["title"]:
+                        finding_codes.add(r["title"].upper())
 
         # If target_id is provided, extract posture snapshot drift or findings
         if request.target_id:
@@ -444,8 +513,8 @@ class RemediationService:
                 fc in tmpl_codes or any(tc in fc for tc in tmpl_codes)
                 for fc in finding_codes
             )
-            # If no finding codes specified at all, return all catalog templates
-            if not finding_codes or matches:
+            # If no finding codes specified at all and no analysis_id, return all catalog templates
+            if (not finding_codes and not request.analysis_id) or matches:
                 matched_templates.add(template_key)
                 snippets_dict = tmpl["snippets"]
                 snippet = snippets_dict.get(request.platform, snippets_dict.get(RemediationPlatform.GENERIC, ""))
