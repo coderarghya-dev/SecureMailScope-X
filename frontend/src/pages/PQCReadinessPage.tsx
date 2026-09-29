@@ -193,7 +193,7 @@ export const PQCReadinessPage: React.FC = () => {
               style={{ marginTop: '12px' }}
             >
               <UploadCloud size={12} />
-              <span>Ingest PCAP</span>
+              <span>Open Ingestion Station</span>
             </button>
           </div>
         )}

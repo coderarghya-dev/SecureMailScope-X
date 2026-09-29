@@ -408,7 +408,7 @@ export const DashboardPage: React.FC = () => {
             }}
           >
             <UploadCloud size={14} />
-            <span>Ingest PCAP</span>
+            <span>Open Ingestion Station</span>
           </button>
         </div>
       )}

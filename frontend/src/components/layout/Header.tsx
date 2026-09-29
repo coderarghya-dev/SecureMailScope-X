@@ -70,9 +70,10 @@ export const Header: React.FC = () => {
           <button
             onClick={() => navigate('/analyze')}
             className="btn-primary"
+            title="Go to Ingestion Station"
           >
             <UploadCloud size={12} />
-            <span>Ingest PCAP</span>
+            <span>Go to Ingestion</span>
           </button>
         )}
 
