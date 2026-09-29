@@ -67,8 +67,8 @@ export const LoginPage: React.FC = () => {
         <div className="auth-glass-card">
           {/* Brand Header */}
           <div style={{ textAlign: 'center', marginBottom: '26px' }}>
-            <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'center' }}>
-              <Logo size={58} alt="SecureMailScope X" />
+            <div style={{ marginBottom: '14px', display: 'flex', justifyContent: 'center' }}>
+              <Logo size={70} alt="SecureMailScope X" />
             </div>
 
             <h2

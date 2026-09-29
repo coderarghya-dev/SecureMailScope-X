@@ -1,7 +1,6 @@
 import React from 'react';
-import { Shield, FileText, Activity, Lock, Cpu, Sparkles } from 'lucide-react';
+import { Shield, FileText, Activity, Lock } from 'lucide-react';
 import { Logo } from '../common/Logo';
-import heroForensicsImg from '../../assets/hero-forensics.jpg';
 
 export const AuthHero: React.FC = () => {
   return (
@@ -9,112 +8,113 @@ export const AuthHero: React.FC = () => {
       {/* Top Brand Bar */}
       <div>
         <div className="auth-hero-top">
-          <Logo size="sm" showWordmark alt="SecureMailScope X" />
-          <div className="auth-hero-badge">
-            <Sparkles size={11} color="#38bdf8" />
-            <span>Forensic Evidence Engine</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Logo size={22} alt="SecureMailScope X" />
+            <span
+              style={{
+                fontSize: '13px',
+                fontWeight: 700,
+                color: '#f8fafc',
+                letterSpacing: '-0.01em',
+              }}
+            >
+              SecureMailScope{' '}
+              <span
+                style={{
+                  color: '#06b6d4',
+                  fontFamily: 'JetBrains Mono, monospace',
+                }}
+              >
+                X
+              </span>
+            </span>
+          </div>
+
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+              padding: '3px 9px',
+              borderRadius: '12px',
+              backgroundColor: 'rgba(6, 182, 212, 0.08)',
+              border: '1px solid rgba(6, 182, 212, 0.22)',
+              fontSize: '9.5px',
+              fontFamily: 'JetBrains Mono, monospace',
+              color: '#38bdf8',
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+            }}
+          >
+            <Lock size={10} color="#06b6d4" />
+            <span>Forensics Engine</span>
           </div>
         </div>
 
         {/* Hero Title & Subtitle */}
-        <div style={{ marginTop: '12px' }}>
+        <div style={{ marginTop: '28px' }}>
           <h1 className="auth-hero-title">
             WELCOME TO <br />
-            <span
-              style={{
-                background: 'linear-gradient(135deg, #ffffff 0%, #38bdf8 50%, #06b6d4 100%)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-              }}
-            >
-              SECUREMAILSCOPE X
-            </span>
+            <span style={{ color: '#38bdf8' }}>SECUREMAILSCOPE X</span>
           </h1>
           <p className="auth-hero-subtitle">
-            Passive email cryptographic forensics and evidence-bound analysis.
+            Passive Email Cryptographic Forensics &amp; Evidence-Bound Analysis
           </p>
         </div>
       </div>
 
-      {/* Center Hero Artwork / Digital Forensics Showcase */}
-      <div className="auth-illustration-container">
-        <img
-          src={heroForensicsImg}
-          alt="SecureMailScope X Cyber Forensics Illustration"
-          className="auth-illustration-img"
-        />
-        {/* Holographic Cyan Glass Tint Overlay */}
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'linear-gradient(180deg, rgba(6, 182, 212, 0.05) 0%, rgba(10, 18, 36, 0.4) 100%)',
-            pointerEvents: 'none',
-          }}
-        />
-        <div
-          style={{
-            position: 'absolute',
-            bottom: '12px',
-            left: '14px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '4px 10px',
-            borderRadius: '6px',
-            backgroundColor: 'rgba(6, 11, 20, 0.75)',
-            border: '1px solid rgba(6, 182, 212, 0.3)',
-            backdropFilter: 'blur(8px)',
-            fontSize: '10.5px',
-            fontFamily: 'JetBrains Mono, monospace',
-            color: '#38bdf8',
-          }}
-        >
+      {/* Center Cyber-Forensics Focal Emblem (No screenshots or mockups) */}
+      <div className="auth-hero-focal">
+        <div className="auth-focal-glow" />
+        <div className="auth-focal-circle">
+          <Logo size={105} alt="SecureMailScope X Cyber Forensics" />
+        </div>
+        <div className="auth-focal-badge">
           <Lock size={11} color="#06b6d4" />
-          <span>FIPS 140-3 &amp; RFC-Bounded Analysis</span>
+          <span>FIPS 140-3 &amp; RFC Compliance Standard</span>
         </div>
       </div>
 
-      {/* 3 Capability Statements */}
+      {/* 3 Simple Capability Rows */}
       <div>
-        <div className="auth-capabilities-grid">
+        <div className="auth-capability-rows">
           {/* 1. INVESTIGATE */}
-          <div className="auth-capability-card">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div className="auth-capability-icon">
-                <Shield size={16} />
-              </div>
-              <span className="auth-capability-title">INVESTIGATE</span>
+          <div className="auth-capability-row">
+            <div className="auth-row-icon">
+              <Shield size={14} />
             </div>
-            <p className="auth-capability-desc">
-              Trace and analyze cryptographic email evidence.
-            </p>
+            <div>
+              <div className="auth-row-title">INVESTIGATE</div>
+              <div className="auth-row-desc">
+                Trace and analyze cryptographic email evidence.
+              </div>
+            </div>
           </div>
 
           {/* 2. PRESERVE */}
-          <div className="auth-capability-card">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div className="auth-capability-icon">
-                <FileText size={16} />
-              </div>
-              <span className="auth-capability-title">PRESERVE</span>
+          <div className="auth-capability-row">
+            <div className="auth-row-icon">
+              <FileText size={14} />
             </div>
-            <p className="auth-capability-desc">
-              Maintain verifiable evidence and audit trails.
-            </p>
+            <div>
+              <div className="auth-row-title">PRESERVE</div>
+              <div className="auth-row-desc">
+                Maintain verifiable evidence and audit trails.
+              </div>
+            </div>
           </div>
 
           {/* 3. VERIFY */}
-          <div className="auth-capability-card">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div className="auth-capability-icon">
-                <Activity size={16} />
-              </div>
-              <span className="auth-capability-title">VERIFY</span>
+          <div className="auth-capability-row">
+            <div className="auth-row-icon">
+              <Activity size={14} />
             </div>
-            <p className="auth-capability-desc">
-              Generate evidence-bound forensic assessments.
-            </p>
+            <div>
+              <div className="auth-row-title">VERIFY</div>
+              <div className="auth-row-desc">
+                Generate evidence-bound forensic assessments.
+              </div>
+            </div>
           </div>
         </div>
       </div>
